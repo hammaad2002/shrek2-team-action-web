@@ -1,5 +1,8 @@
 // Logging, dispatch, HLE thunks, PE image loading, guest threads and guest calls.
+#include <csignal>
 #include <cstdio>
+#include <sys/time.h>
+#include <ucontext.h>
 #include <cstdlib>
 #include <map>
 #include <chrono>
@@ -254,7 +257,59 @@ static int64_t now_ms() {
 
 void note_present() { g_last_present_ms = now_ms(); }
 
+// ---- Sampling profiler (SHREK2_PROFILE=start_s:duration_s) --------------------------------------
+// SIGPROF every millisecond of process CPU time records the interrupted host PC; the raw samples
+// are written to work/profile.txt and symbolised offline (tools/profile.py).
+static constexpr size_t kProfMax = 1 << 22;
+static uint64_t* g_prof_pcs = nullptr;
+static std::atomic<size_t> g_prof_n{0};
+
+static void prof_handler(int, siginfo_t*, void* uc) {
+  size_t i = g_prof_n.fetch_add(1, std::memory_order_relaxed);
+  if (i < kProfMax) g_prof_pcs[i] = (uint64_t)((ucontext_t*)uc)->uc_mcontext.gregs[REG_RIP];
+}
+
+static void profiler_start() {
+  const char* env = getenv("SHREK2_PROFILE");
+  if (!env) return;
+  int start = atoi(env), dur = 30;
+  if (const char* c = strchr(env, ':')) dur = atoi(c + 1);
+  g_prof_pcs = new uint64_t[kProfMax];
+  std::thread([start, dur] {
+    std::this_thread::sleep_for(std::chrono::seconds(start));
+    struct sigaction sa {};
+    sa.sa_sigaction = prof_handler;
+    sa.sa_flags = SA_SIGINFO | SA_RESTART;
+    sigaction(SIGPROF, &sa, nullptr);
+    struct itimerval tv {};
+    tv.it_interval.tv_usec = 1000;
+    tv.it_value.tv_usec = 1000;
+    setitimer(ITIMER_PROF, &tv, nullptr);
+    log(Log::Info, "profiler: sampling for %d s", dur);
+    std::this_thread::sleep_for(std::chrono::seconds(dur));
+    struct itimerval off {};
+    setitimer(ITIMER_PROF, &off, nullptr);
+    size_t n = std::min(g_prof_n.load(), kProfMax);
+    FILE* f = fopen("work/profile.txt", "w");
+    if (f) {
+      for (size_t i = 0; i < n; i++) fprintf(f, "%lx\n", (unsigned long)g_prof_pcs[i]);
+      fclose(f);
+    }
+    // Shared-library samples are attributed offline using the process map.
+    if (FILE* in = fopen("/proc/self/maps", "r")) {
+      if (FILE* out = fopen("work/profile_maps.txt", "w")) {
+        char line[512];
+        while (fgets(line, sizeof line, in)) fputs(line, out);
+        fclose(out);
+      }
+      fclose(in);
+    }
+    log(Log::Info, "profiler: wrote %zu samples to work/profile.txt", n);
+  }).detach();
+}
+
 void watchdog_start() {
+  profiler_start();
   const char* env = getenv("SHREK2_WATCHDOG");
   if (!env) return;
   int64_t limit = (int64_t)atoi(env) * 1000;

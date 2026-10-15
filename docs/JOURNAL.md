@@ -92,3 +92,15 @@ decisions and gotchas — no decompiled code.
   `SHREK2_STATUS=1` (periodic thread status).
 - Result: New Game → create save → save slot A → storybook intro → in-engine cutscene (Shrek and
   Fiona in the swamp, subtitles) at 60 fps, ~630 draws / 81k triangles per frame.
+
+## 2026-10-16 — Performance pass (native)
+- Built-in sampling profiler: `SHREK2_PROFILE=start_s:duration_s` (SIGPROF every ms of CPU time →
+  work/profile.txt + process map), symbolised by `tools/profile.py` (binary + shared libraries).
+- The generated code is compiled at -O1, where clang left the `static inline` guest memory accessors
+  and `rt_round24` out of line: >55% of CPU time. They are now `always_inline` (RT_INLINE):
+  cutscenes went from 11–22 fps to 150–190 fps uncapped.
+- The engine paces itself (0x52df90): a 30 Hz tick model with a speed scale clamped to
+  [0.8, 1.35], sleeping the remainder of each frame — so ~30–40 fps in menus/gameplay is the
+  intended behaviour (Xbox heritage), and the CPU is mostly idle there.
+- Next hotspot: D3DX's x87 D3DXMatrixMultiply (0x56367b) — the x87 register stack lives in the Cpu
+  struct with dynamic indexing; a static stack-depth lowering would let it live in locals.

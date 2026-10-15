@@ -1,4 +1,5 @@
 // IDirect3DDevice9: state tracking (for Get* calls and state blocks) plus command recording.
+#include <chrono>
 #include <cmath>
 
 #include "../core/objects.h"
@@ -335,8 +336,16 @@ uint32_t Present(Cpu*, ComObject* self) {
   Device* d = D(self);
   rec().op(cmd::OpPresent, {(uint32_t)d->frame});
   d->frame++;
-  if (trace_enabled("frames") || d->frame <= 3 || d->frame % 600 == 0)
-    log(Log::Info, "Present #%llu (%u draws, %u primitives)", (unsigned long long)d->frame, d->draws, d->prims);
+  static auto t_last = std::chrono::steady_clock::now();
+  static uint64_t f_last = 0;
+  if (trace_enabled("frames") || d->frame <= 3 || d->frame % 600 == 0) {
+    auto now = std::chrono::steady_clock::now();
+    double secs = std::chrono::duration<double>(now - t_last).count();
+    log(Log::Info, "Present #%llu (%u draws, %u primitives, %.1f fps)", (unsigned long long)d->frame, d->draws, d->prims,
+        secs > 0 ? (double)(d->frame - f_last) / secs : 0.0);
+    t_last = now;
+    f_last = d->frame;
+  }
   d->draws = d->prims = 0;
   flush();
   return S_OK;
