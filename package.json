@@ -1,0 +1,23 @@
+{
+  "name": "shrek2-web",
+  "private": true,
+  "type": "module",
+  "description": "Play your own copy of Shrek 2 Team Action (PC, 2004) in a desktop browser via static recompilation",
+  "workspaces": [
+    "installer",
+    "recomp",
+    "web"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

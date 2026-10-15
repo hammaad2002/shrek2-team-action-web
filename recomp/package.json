@@ -1,0 +1,1 @@
+{"name":"@shrek2web/recomp","private":true,"type":"module","main":"src/index.ts","dependencies":{"binaryen":"^132.0.0","iced-x86":"^1.21.0"}}

@@ -1,0 +1,18 @@
+# Game media and anything derived from it never enters the repo
+*.iso
+*.ISO
+*.bin
+*.cue
+work/
+research/
+
+# Build outputs and dependencies
+node_modules/
+build/
+dist/
+.venv/
+*.o
+*.a
+*.wasm
+__pycache__/
+.DS_Store
