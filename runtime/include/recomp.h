@@ -87,6 +87,15 @@ static inline uint32_t f32bits(float f) { uint32_t b; memcpy(&b, &f, 4); return 
 static inline double bits2f64(uint64_t b) { double f; memcpy(&f, &b, 8); return f; }
 static inline uint64_t f64bits(double f) { uint64_t b; memcpy(&b, &f, 8); return b; }
 
+/* Optional block tracing (build with -DRECOMP_TRACE): records the x86 address of every basic
+ * block executed, for differential debugging against a reference emulator. */
+#ifdef RECOMP_TRACE
+void rt_trace_block(Cpu* c, uint32_t addr);
+#define RT_BLOCK(a) rt_trace_block(c, (a))
+#else
+#define RT_BLOCK(a) ((void)0)
+#endif
+
 /* Runtime services (runtime/src). */
 void rt_dispatch(Cpu* c, uint32_t target);
 void rt_hle(Cpu* c, uint32_t import_index);

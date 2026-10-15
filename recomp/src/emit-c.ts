@@ -232,7 +232,11 @@ export function emitFunction(f: IrFunc): string {
   // Silence unused-label/variable noise in generated code.
   for (const id of f.order) {
     const b = f.blocks.get(id)!;
-    if (id !== "entry") out.push(`${id}:;`);
+    if (id !== "entry") {
+      out.push(`${id}:;`);
+      const m = /^b_([0-9a-f]{8})$/.exec(id);
+      if (m) out.push(`  RT_BLOCK(0x${m[1]}u);`);
+    }
     for (const s of b.stmts) stmt(s, out);
     term(b.term, out);
   }

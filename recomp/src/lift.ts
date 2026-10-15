@@ -1037,6 +1037,10 @@ class FnLifter {
     }
   }
 
+  private setC2(v: Expr): void {
+    this.emit({ k: "cpuset", field: "fsw", ty: "i32", v: or(and(cpu("fsw"), c32(~0x400)), shl(v, c32(10))) });
+  }
+
   private fcompare(a: Expr, b: Expr): void {
     const x = this.tmp(a);
     const y = this.tmp(b);
@@ -1158,18 +1162,28 @@ class FnLifter {
       case Mnemonic.Fldl2t: this.fpush(cf64(Math.log2(10))); return;
       case Mnemonic.Fldlg2: this.fpush(cf64(Math.LOG10E * Math.LN2)); return;
       case Mnemonic.Fldln2: this.fpush(cf64(Math.LN2)); return;
-      case Mnemonic.Fsin: this.setSt(0, call("rt_sin", "f64", this.st(0))); return;
-      case Mnemonic.Fcos: this.setSt(0, call("rt_cos", "f64", this.st(0))); return;
-      case Mnemonic.Fsincos: {
+      // Trig operands with |x| >= 2^63 are left unchanged with C2 set and nothing pushed.
+      case Mnemonic.Fsin:
+      case Mnemonic.Fcos: {
         const x = this.tmp(this.st(0));
-        this.setSt(0, call("rt_sin", "f64", x));
-        this.fpush(call("rt_cos", "f64", x));
+        const inRange = this.tmp(eqz(bin("fge", un("fabs", x, "f64"), cf64(2 ** 63))));
+        this.setSt(0, call(m === Mnemonic.Fsin ? "rt_sin" : "rt_cos", "f64", x));
+        this.setC2(eqz(inRange));
         return;
       }
-      case Mnemonic.Fptan:
-        this.setSt(0, call("rt_tan", "f64", this.st(0)));
-        this.fpush(cf64(1));
+      case Mnemonic.Fsincos:
+      case Mnemonic.Fptan: {
+        const x = this.tmp(this.st(0));
+        const inRange = this.tmp(eqz(bin("fge", un("fabs", x, "f64"), cf64(2 ** 63))));
+        const first = this.tmp(call(m === Mnemonic.Fsincos ? "rt_sin" : "rt_tan", "f64", x));
+        const pushed = this.tmp(m === Mnemonic.Fsincos ? call("rt_cos", "f64", x) : cf64(1));
+        this.setSt(0, first);
+        const top = this.tmp(sel(inRange, and(sub(loc("ftop"), c32(1)), c32(7)), loc("ftop")));
+        this.emit({ k: "cpuset", field: "fpr", index: top, ty: "f64", v: sel(inRange, pushed, cpu("fpr", "f64", top)) });
+        this.set("ftop", top);
+        this.setC2(eqz(inRange));
         return;
+      }
       case Mnemonic.Fpatan: {
         const y = this.tmp(this.st(1));
         const x = this.tmp(this.st(0));

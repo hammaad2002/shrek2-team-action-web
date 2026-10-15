@@ -34,3 +34,18 @@ decisions and gotchas — no decompiled code.
 - Known Unicorn gaps: FS_BASE writes ignored in 32-bit mode; #DE stops emulation without an error;
   legacy QEMU x87 helpers (fyl2x/fprem/fscale) differ from hardware.
 - Resolution registry value: 0 → 640x480 (default), 1 → 800x600, 2 → 1024x768, 3 → 1280x1024.
+
+## 2026-10-16 — M2 function-level conformance, M3 native boot
+- Whole-function differential tests (tests/conformance/funcs.py): 1,530 self-contained game
+  functions × 6 random states in Unicorn vs native. Fixed: stale regenerated code, x87 trig with
+  |x| >= 2^63 (C2 set, operand unchanged, fsincos/fptan don't push). `TRACE_DIFF=1` replays a
+  failing vector with block tracing (RT_BLOCK) and reports the first divergent block.
+- Known semantic gaps (all rare, documented): x87 sticky exception bits (IE/ZE/PE…) not modelled in
+  FSW; rounding-control directed rounding only applied to fist/frndint (D3DX texture code runs whole
+  loops with RC=truncate → 1-ulp float differences); fnstenv reserved words.
+- Native runtime (runtime/, CMake + SDL2): guest window at fixed host base, dlmalloc mspace heaps,
+  VirtualAlloc pages, PE loader with HLE thunks, threads/TEB/TLS, VFS (case-insensitive, game sees
+  itself at C:\Games\Shrek 2 Team Action\), virtual registry (DisableD3DXPSGP=1), kernel32 (all 98
+  imports), user32/gdi32/winmm/advapi32.
+- First run: CRT startup completes, the streaming thread (0x5347d0) starts, the window is created and
+  the game's WndProc runs, then it stops at the first DirectX call (DirectSoundCreate8).

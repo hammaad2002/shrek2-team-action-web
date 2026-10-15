@@ -65,6 +65,11 @@ for (let k = 0; k * perFile < selected.length; k++) {
   }
   writeFileSync(join(out, `funcs_${String(k).padStart(3, "0")}.c`), parts.join("\n"));
 }
+{
+  const starts = new Set<number>();
+  for (const f of prog.funcs.values()) for (const b of f.blocks.keys()) starts.add(b);
+  writeFileSync(join(out, "blocks.bin"), new Uint8Array(Uint32Array.from([...starts].sort((a, b) => a - b)).buffer));
+}
 writeFileSync(join(out, "recomp_funcs.h"), `#pragma once\n#include "recomp.h"\n${emitPrototypes(entries)}\n`);
 writeFileSync(
   join(out, "recomp_table.c"),
