@@ -68,6 +68,8 @@ uint8_t dik_index(uint16_t dik) { return (uint8_t)((dik & 0x100) ? 0x80 | (dik &
 }  // namespace
 
 bool init() {
+  // Let SIGINT/SIGTERM terminate the process instead of becoming a quit event the game may ignore.
+  SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0) {
     rt::log(rt::Log::Error, "SDL_Init failed: %s", SDL_GetError());
     return false;
@@ -77,17 +79,60 @@ bool init() {
 
 void create_window(const std::string& title, int width, int height) {
   if (g_window) return;
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+  // OpenGL ES 3.0: the same API and shading language the web build gets from WebGL 2.
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
   SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
   SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
   g_window = SDL_CreateWindow(("Shrek 2 Team Action - " + title).c_str(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                              width, height, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+                              width, height, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | (getenv("SHREK2_HIDDEN") ? SDL_WINDOW_HIDDEN : 0));
   if (!g_window) rt::fatal("SDL_CreateWindow failed: %s", SDL_GetError());
 }
 
 bool has_window() { return g_window != nullptr; }
+
+bool gl_create_context() {
+  if (!g_window) create_window("Shrek 2", 640, 480);
+  SDL_GLContext ctx = SDL_GL_CreateContext(g_window);
+  if (!ctx) {
+    rt::log(rt::Log::Error, "SDL_GL_CreateContext (OpenGL ES 3.0) failed: %s", SDL_GetError());
+    return false;
+  }
+  SDL_GL_MakeCurrent(g_window, ctx);
+  return true;
+}
+
+void gl_swap() { SDL_GL_SwapWindow(g_window); }
+
+void gl_set_swap_interval(int interval) { SDL_GL_SetSwapInterval(interval); }
+
+namespace {
+void (*g_audio_render)(float*, int) = nullptr;
+void audio_callback(void*, Uint8* stream, int len) { g_audio_render((float*)stream, len / (int)(2 * sizeof(float))); }
+}  // namespace
+
+bool audio_open(int rate, void (*render)(float* out, int frames)) {
+  if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
+    rt::log(rt::Log::Warn, "SDL audio init failed: %s", SDL_GetError());
+    return false;
+  }
+  g_audio_render = render;
+  SDL_AudioSpec want{}, have{};
+  want.freq = rate;
+  want.format = AUDIO_F32SYS;
+  want.channels = 2;
+  want.samples = 1024;
+  want.callback = audio_callback;
+  SDL_AudioDeviceID dev = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
+  if (!dev) {
+    rt::log(rt::Log::Warn, "SDL_OpenAudioDevice failed: %s", SDL_GetError());
+    return false;
+  }
+  SDL_PauseAudioDevice(dev, 0);
+  rt::log(rt::Log::Info, "audio: %d Hz, %d-frame buffer", have.freq, have.samples);
+  return true;
+}
 
 void set_window_size(int width, int height) {
   if (g_window) SDL_SetWindowSize(g_window, width, height);

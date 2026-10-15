@@ -203,6 +203,11 @@ function term(t: Term, out: string[]): void {
       t.targets.forEach((l, i) => out.push(`    case ${i}: goto ${l};`));
       out.push(`    default: goto ${t.dflt};`, "  }");
       return;
+    case "switchaddr":
+      out.push(`  switch (${expr(t.target)}) {`);
+      for (const [a, l] of t.cases) out.push(`    case 0x${a.toString(16)}u: goto ${l};`);
+      out.push(`    default: goto ${t.dflt};`, "  }");
+      return;
     case "ret":
       out.push("  return;");
       return;

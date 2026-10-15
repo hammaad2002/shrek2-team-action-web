@@ -372,7 +372,7 @@ class FnLifter {
 
   private isTerminatorInsn(b: Block, i: Insn): boolean {
     switch (b.term.kind) {
-      case "jmp": case "jcc": case "switch": case "ret": case "tail-import": case "tail-indirect":
+      case "jmp": case "jcc": case "switch": case "switch-addr": case "ret": case "tail-import": case "tail-indirect":
         return true;
       case "tail":
         return i.mnemonic === Mnemonic.Jmp;
@@ -1267,7 +1267,7 @@ class FnLifter {
         const dflt = this.synthBlock();
         dflt.term = { k: "trap", msg: `switch index out of range at 0x${hex(last.ip)}` };
         this.cur = cur;
-        return done({ k: "switch", idx, targets: t.table.targets.map(label), dflt: dflt.id });
+        return done({ k: "switch", idx, targets: t.table.targets.map((x) => (x < 0 ? dflt.id : label(x))), dflt: dflt.id });
       }
       case "ret": {
         this.emit({ k: "comment", text: `${hex(last.ip)}: ${last.text}` });
@@ -1284,6 +1284,17 @@ class FnLifter {
         const imp = this.prog.pe.importBySlot.get(t.slot)!;
         this.emit({ k: "syncout" });
         return done({ k: "tailhle", slot: this.importIndex(t.slot), name: `${imp.dll}!${imp.name}` });
+      }
+      case "switch-addr": {
+        this.emit({ k: "comment", text: `${hex(last.ip)}: ${last.text}` });
+        const target = this.tmp(this.read(last.ops[0]));
+        const cur = this.cur;
+        const dflt = this.synthBlock();
+        this.cur = dflt;
+        this.emit({ k: "syncout" });
+        dflt.term = { k: "tailind", target };
+        this.cur = cur;
+        return done({ k: "switchaddr", target, cases: t.targets.map((a) => [a, label(a)] as [number, string]), dflt: dflt.id });
       }
       case "tail-indirect": {
         this.emit({ k: "comment", text: `${hex(last.ip)}: ${last.text}` });

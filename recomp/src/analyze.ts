@@ -28,7 +28,7 @@ for (const f of prog.funcs.values()) {
     blocks++;
     insns += b.insns.length;
     if (b.term.kind === "trap") traps++;
-    if (b.term.kind === "switch") switches++;
+    if (b.term.kind === "switch" || b.term.kind === "switch-addr") switches++;
     if (b.term.kind === "tail") tails++;
     if (b.term.kind === "tail-indirect") tailInd++;
     for (const i of b.insns) {

@@ -103,7 +103,7 @@ struct HleExport {
 };
 void hle_register(const char* dll, const char* name, HleFn fn);
 HleFn hle_find(const std::string& dll, const std::string& name);
-uint32_t make_thunk(HleFn fn, const std::string& label);  // guest address that dispatches to fn
+uint32_t make_thunk(std::function<void(Cpu*)> fn, const std::string& label);  // guest address dispatching to fn
 const std::string& thunk_label(uint32_t addr);
 void dispatch_init();
 void load_image(const std::vector<uint8_t>& exe);  // maps sections and binds imports
@@ -133,5 +133,11 @@ struct HleRegistrar {
   static void hle_entry_##name(Cpu* c) { ret_stdcall(c, hle_impl_##name(c), n); } \
   static rt::HleRegistrar RT_CAT(hle_reg_, __LINE__)(dll, #name, hle_entry_##name); \
   static uint32_t hle_impl_##name(Cpu* c)
+// Same, for exports whose names are not C identifiers (e.g. "_BinkOpen@8").
+#define HLE_STDCALL_AS(dll, ident, export_name, n)                                    \
+  static uint32_t hle_impl_##ident(Cpu* c);                                          \
+  static void hle_entry_##ident(Cpu* c) { ret_stdcall(c, hle_impl_##ident(c), n); } \
+  static rt::HleRegistrar RT_CAT(hle_reg_, __LINE__)(dll, export_name, hle_entry_##ident); \
+  static uint32_t hle_impl_##ident(Cpu* c)
 
 }  // namespace rt

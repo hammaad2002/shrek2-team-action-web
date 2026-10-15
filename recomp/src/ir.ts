@@ -70,6 +70,8 @@ export type Term =
   | { k: "br"; to: string }
   | { k: "cbr"; c: Expr; t: string; f: string }
   | { k: "switch"; idx: Expr; targets: string[]; dflt: string }
+  /** Switch on a guest code address (unbounded jump tables); unknown addresses take `dflt`. */
+  | { k: "switchaddr"; target: Expr; cases: [number, string][]; dflt: string }
   | { k: "ret" }
   | { k: "tail"; target: number }
   | { k: "tailind"; target: Expr }

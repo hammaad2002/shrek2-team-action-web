@@ -32,5 +32,11 @@ const uint8_t* keyboard_state();
 struct MouseState { int32_t dx, dy, wheel; uint8_t buttons[4]; };
 MouseState take_mouse_state();
 bool has_window();
+// OpenGL ES 3.0 context for the renderer (created on the calling thread).
+bool gl_create_context();
+void gl_swap();
+void gl_set_swap_interval(int interval);
+// Audio output: `render` is called from the audio thread for interleaved stereo float frames.
+bool audio_open(int rate, void (*render)(float* out, int frames));
 
 }  // namespace plat

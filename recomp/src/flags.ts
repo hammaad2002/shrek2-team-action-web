@@ -136,7 +136,9 @@ export function successors(f: Func, b: Block): number[] {
     case "jcc":
       return f.blocks.has(t.target) ? [t.target, t.next] : [t.next];
     case "switch":
-      return [...new Set(t.table.targets)];
+      return [...new Set(t.table.targets.filter((x) => x >= 0))];
+    case "switch-addr":
+      return [...new Set(t.targets)];
     default:
       return [];
   }

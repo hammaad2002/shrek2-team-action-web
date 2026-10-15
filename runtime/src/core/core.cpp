@@ -81,14 +81,14 @@ namespace rt {
 // ---- Thunks and dispatch -------------------------------------------------------------------
 
 struct Thunk {
-  HleFn fn;
+  std::function<void(Cpu*)> fn;  // empty for imports that are not implemented
   std::string label;
 };
 static std::vector<Thunk> g_thunks;  // index = (addr - kThunkBase) / 4
 static std::mutex g_thunk_mutex;
 static const uint32_t kMaxThunks = (kThunkEnd - kThunkBase) / 4 - 16;
 
-uint32_t make_thunk(HleFn fn, const std::string& label) {
+uint32_t make_thunk(std::function<void(Cpu*)> fn, const std::string& label) {
   std::lock_guard<std::mutex> lock(g_thunk_mutex);
   if (g_thunks.size() >= kMaxThunks) fatal("out of HLE thunks");
   g_thunks.push_back({fn, label});
@@ -130,6 +130,7 @@ extern "C" void rt_dispatch(Cpu* c, uint32_t target) {
   } else if (target >= kThunkBase && target < kThunkEnd) {
     uint32_t i = (target - kThunkBase) / 4;
     if (i < g_thunks.size() && (target & 3) == 0) {
+      if (!g_thunks[i].fn) fatal("unimplemented %s (called indirectly from %08x)", g_thunks[i].label.c_str(), ld32(c->esp));
       g_thunks[i].fn(c);
       return;
     }
@@ -167,12 +168,6 @@ struct Import {
 };
 static std::vector<Import> g_imports;
 static uint32_t g_entry;
-
-static void unimplemented(Cpu* c) {
-  // Which import? Recover it from the thunk label via the return address is not possible here,
-  // so each unimplemented import gets its own lambda-free thunk label (see load_image).
-  (void)c;
-}
 
 uint32_t image_entry() { return g_entry; }
 
@@ -215,7 +210,7 @@ void load_image(const std::vector<uint8_t>& exe) {
   // Import indices must match the recompiler's order (pe.ts walks descriptors the same way).
   for (size_t i = 0; i < g_imports.size(); i++) {
     Import& im = g_imports[i];
-    uint32_t thunk = make_thunk(im.fn ? im.fn : unimplemented, im.dll + "!" + im.name);
+    uint32_t thunk = make_thunk(im.fn ? std::function<void(Cpu*)>(im.fn) : std::function<void(Cpu*)>(), im.dll + "!" + im.name);
     st32(im.slot, thunk);
   }
   size_t missing = 0;

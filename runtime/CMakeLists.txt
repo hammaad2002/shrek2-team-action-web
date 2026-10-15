@@ -26,6 +26,8 @@ target_compile_definitions(dlmalloc PRIVATE ONLY_MSPACES=1 MSPACES=1 USE_LOCKS=1
 target_compile_options(dlmalloc PRIVATE -w -O2)
 
 find_package(SDL2 REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(AVCODEC REQUIRED IMPORTED_TARGET libavcodec libavutil)
 
 add_executable(shrek2
   src/main.cpp
@@ -37,7 +39,21 @@ add_executable(shrek2
   src/hle/kernel32_files.cpp
   src/hle/advapi32.cpp
   src/hle/user32.cpp
+  src/hle/com.cpp
+  src/hle/dsound.cpp
+  src/hle/dinput8.cpp
+  src/hle/binkw32.cpp
+  src/audio/mixer.cpp
+  src/d3d9/direct3d9.cpp
+  src/d3d9/device.cpp
+  src/d3d9/resources.cpp
+  src/d3d9/formats.cpp
+  src/d3d9/recorder.cpp
+  src/gles/executor.cpp
+  src/gles/renderer.cpp
+  src/gles/ffp.cpp
+  src/gles/sm_vs.cpp
   src/platform/platform_sdl.cpp)
-target_include_directories(shrek2 PRIVATE include src)
+target_include_directories(shrek2 PRIVATE include src ../third_party/khronos)
 target_compile_options(shrek2 PRIVATE -Wall -Wextra -Wno-unused-parameter)
-target_link_libraries(shrek2 PRIVATE recomp_game dlmalloc SDL2::SDL2 pthread m)
+target_link_libraries(shrek2 PRIVATE recomp_game dlmalloc SDL2::SDL2 PkgConfig::AVCODEC GLESv2 pthread m)

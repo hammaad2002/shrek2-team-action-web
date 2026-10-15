@@ -18,6 +18,8 @@ export type Terminator =
   | { kind: "tail"; target: number } // jmp to another function's entry
   | { kind: "tail-import"; slot: number }
   | { kind: "tail-indirect" } // jmp reg/mem that is not a jump table
+  /** Unbounded `jmp [r*4 + table]`: dispatch on the loaded address over code pointers found around the table. */
+  | { kind: "switch-addr"; targets: number[] }
   | { kind: "noreturn" } // call to a function that never returns
   | { kind: "trap"; reason: string }; // int3/hlt/ud2/invalid code: abort if reached
 
@@ -33,7 +35,7 @@ export interface JumpTable {
   table: number;
   /** Optional byte index table (MSVC `movzx r, byte [r+idx]` form). */
   indexTable: number | null;
-  /** Register holding the (pre-index-table) switch value at the dispatch. */
+  /** Target per index; -1 marks entries the code never takes (they trap). */
   targets: number[];
   bounded: boolean;
 }
@@ -255,8 +257,14 @@ export class Program {
         if (slot !== null) return { kind: "tail-import", slot };
         const jt = this.resolveJumpTable(insn, blockInsns, f);
         if (jt) {
-          for (const t of jt.targets) push(t);
+          for (const t of jt.targets) if (t >= 0) push(t);
           return { kind: "switch", table: jt };
+        }
+        const cands = f.speculative ? [] : this.tableCandidates(insn);
+        if (cands.length) {
+          for (const t of cands) push(t);
+          this.log.push(`jump table at 0x${insn.ip.toString(16)}: address switch over ${cands.length} candidate(s)`);
+          return { kind: "switch-addr", targets: cands };
         }
         return { kind: "tail-indirect" };
       }
@@ -286,6 +294,7 @@ export class Program {
     let idxReg = m.index;
     let indexTable: number | null = null;
     let count: number | null = null;
+    let masked = false;
     for (let k = history.length - 2; k >= 0 && k >= history.length - 12; k--) {
       const h = history[k];
       // movzx idxReg, byte ptr [r + idxtable]
@@ -301,6 +310,7 @@ export class Program {
       // `and idx, mask` (e.g. CRT memcpy tail dispatch) bounds the index to [0, mask].
       if (h.mnemonic === Mnemonic.And && h.ops[0]?.kind === "reg" && sameReg(h.ops[0].reg, idxReg) && h.ops[1]?.kind === "imm" && h.ops[1].value < 256) {
         count = h.ops[1].value + 1;
+        masked = true;
         break;
       }
       // Any other write to the index register before a bound was found: give up on this chain.
@@ -318,6 +328,13 @@ export class Program {
         for (let i = 0; i < count; i++) targets.push(this.pe.u32(table + i * 4));
       }
       bounded = targets.every((t) => this.inText(t));
+      // A mask only bounds the index; the code may never use some values (CRT memcpy's LeadUpVec
+      // has a garbage entry 0 that overlaps the preceding instruction). Unused entries trap.
+      if (!bounded && masked && targets.some((t) => this.inText(t))) {
+        targets = targets.map((t) => (this.inText(t) ? t : -1));
+        bounded = true;
+        this.log.push(`jump table at 0x${insn.ip.toString(16)}: masked, invalid entries trap`);
+      }
     }
     if (!bounded) {
       if (hinted && hinted.length) {
@@ -336,6 +353,32 @@ export class Program {
       }
     }
     return { at: insn.ip, table, indexTable, targets, bounded };
+  }
+
+  /**
+   * Code pointers near the table of an unbounded `jmp [r*4 + table]` (indices may even be negative,
+   * as in CRT memcpy's TrailUpVec). Entries must point close to the jump itself; scanning stops in
+   * each direction after two consecutive misses.
+   */
+  private tableCandidates(insn: Insn): number[] {
+    const m = insn.mem;
+    if (!m || m.scale !== 4 || m.index === Register.None || m.base !== Register.None || m.size !== 4) return [];
+    const table = m.disp;
+    const ok = (t: number) => this.inText(t) && Math.abs(t - insn.ip) < 0x1000;
+    const out = new Set<number>();
+    for (const dir of [1, -1]) {
+      let misses = 0;
+      for (let i = dir === 1 ? 0 : -1; Math.abs(i) < 64 && misses < 2; i += dir) {
+        const a = table + 4 * i;
+        if (!this.pe.contains(a)) break;
+        const t = this.pe.u32(a);
+        if (ok(t)) {
+          out.add(t);
+          misses = 0;
+        } else misses++;
+      }
+    }
+    return [...out].sort((a, b) => a - b);
   }
 
   /** Instructions on the fall-through path ending at the current position (most recent last). */
@@ -420,7 +463,7 @@ export class Program {
         let returns = false;
         for (const b of f.blocks.values()) {
           const t = b.term;
-          if (t.kind === "ret" || t.kind === "tail-import" || t.kind === "tail-indirect") returns = true;
+          if (t.kind === "ret" || t.kind === "tail-import" || t.kind === "tail-indirect" || t.kind === "switch-addr") returns = true;
           else if (t.kind === "tail" && !this.noreturn.has(t.target)) returns = true;
           else if (t.kind === "jcc" && this.isFunctionEntry(t.target) && !this.noreturn.has(t.target)) returns = true;
         }

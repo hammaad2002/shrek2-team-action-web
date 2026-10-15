@@ -49,3 +49,32 @@ decisions and gotchas — no decompiled code.
   imports), user32/gdi32/winmm/advapi32.
 - First run: CRT startup completes, the streaming thread (0x5347d0) starts, the window is created and
   the game's WndProc runs, then it stops at the first DirectX call (DirectSoundCreate8).
+
+## 2026-10-16 — M4/M5 first light: intro videos and the main menu render natively
+- D3D9 HLE records a command stream (copies of all guest data) executed by a GLES 3.0 backend
+  (`runtime/src/gles/`), the same API/shading language WebGL 2 gives the web build. Render targets
+  are stored D3D-style (row 0 = top): clip-space Y is flipped in every vertex shader, so D3D
+  viewport/scissor rectangles and texture rows map 1:1 and only the final present blit flips.
+  D3D9's half-pixel offset is applied in clip space (+w/vp.w, +w/vp.h after the flip), z goes from
+  [0,w] to [-w,w], D3DCULL_CCW → glCullFace(GL_BACK) with GL_CCW front faces.
+- Fixed-function pipeline generated as GLSL from a byte key (lights, material sources, fog modes,
+  texture coordinate generation/transforms with D3D's (u,v,1,0) padding, all 26 texture ops, alpha
+  test). The exe embeds exactly one vs.1.1 shader (planar shadow projection); vs_1_1/vs_2_0 bytecode
+  is translated to GLSL by `sm_vs.cpp`. No pixel shaders are used.
+- binkw32 HLE (12 exports) parses the BIK container itself and decodes with FFmpeg's libavcodec
+  (system FFmpeg 4.4 natively). Video goes through BinkCopyToBuffer into a locked X8R8G8B8 texture;
+  music/voice are audio-only Bink files (4x4 video) opened from memory with BINKFROMMEMORY
+  (0x04000000) on the streaming thread. Playback timing follows the audio clock.
+  Pitfall: a failing `avcodec_receive_frame()` unrefs its output frame — receive into a scratch frame.
+- Recompiler: CRT memcpy's jump tables broke discovery twice — LeadUpVec has a garbage entry 0
+  (overlapping the previous instruction; index is always 1..3) and TrailUpVec is indexed with a
+  negative index. Masked tables now keep only in-.text entries (others trap), and unbounded
+  `jmp [r*4+table]` lowers to a switch on the loaded target address over code pointers found around
+  the table, with dynamic dispatch as the default.
+- Bug: the implicit back buffer was not ref-counted for its render-target binding, so the game's
+  first SetRenderTarget deleted it while COM still mapped its id. COM objects now unregister their
+  guest wrappers in the destructor (stale pointers fail loudly) and D3D ref-counting is centralised.
+- Result: Activision/DreamWorks intro and Beenox logo videos play with audio, the storybook main
+  menu renders correctly at 60 fps, and the idle attract-mode demo video starts.
+- Test hooks: `SHREK2_HIDDEN=1` (hidden window), `SHREK2_DUMP=n,..` (frame dumps to work/frames),
+  `SHREK2_VSYNC=0`, `SHREK2_TRACE=com,hle,draws,uploads,bink,shaders,debug`.
