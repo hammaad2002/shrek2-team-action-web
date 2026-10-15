@@ -10,8 +10,8 @@ void recorder_create_device(Device* dev);
 cmd::Stream& rec();
 uint32_t new_resource_id();
 // Hand the recorded commands to the executor. Natively they run synchronously; on the web they
-// are queued for the page's main thread.
-void flush();
+// are queued for the page's main thread. `present` marks the end of a frame.
+void flush(bool present = false);
 // Execute everything recorded so far and wait for completion (readbacks need this).
 void flush_and_wait();
 

@@ -347,7 +347,7 @@ uint32_t Present(Cpu*, ComObject* self) {
     f_last = d->frame;
   }
   d->draws = d->prims = 0;
-  flush();
+  flush(true);
   return S_OK;
 }
 

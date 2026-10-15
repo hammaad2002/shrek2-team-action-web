@@ -104,3 +104,24 @@ decisions and gotchas — no decompiled code.
   intended behaviour (Xbox heritage), and the CPU is mostly idle there.
 - Next hotspot: D3DX's x87 D3DXMatrixMultiply (0x56367b) — the x87 register stack lives in the Cpu
   struct with dynamic indexing; a static stack-depth lowering would let it live in locals.
+
+## 2026-10-16 — M7: the web dev build runs the game in Chrome
+- Emscripten 6.0.12 (`work/tools/emsdk`), FFmpeg 7.1.1 libavcodec with only the bink /
+  binkaudio_rdft / binkaudio_dct decoders (`tools/build-ffmpeg-web.sh`).
+- Web runtime: PROXY_TO_PTHREAD (the C main() becomes the game's main thread), guest window
+  identity-mapped at [0, 1 GiB) with `-sGLOBAL_BASE=1 GiB`, 2 GiB fixed shared memory, WASMFS with
+  the OPFS backend mounted at /opfs. The page's main thread owns the WebGL 2 context and executes
+  queued D3D command batches once per requestAnimationFrame (one presented frame per tick; the
+  game thread waits at Present while more than one frame is queued). Audio: a feeder pthread
+  renders the mixer into a shared ring read by an AudioWorklet. Input: DOM events → exported
+  web_* functions (KeyboardEvent.code → VK + DirectInput scan code table).
+- Shell (web/, Vite 8): OPFS installer worker reusing installer/src (FileReaderSync over the
+  chosen File, FileSystemSyncAccessHandle writes), Play button, dev switches (devIso, autoplay,
+  keys, capture). The dev engine (contains translated code) is only served by a dev-server
+  middleware from work/build-web, so `vite build` output can never include it.
+- Headless smoke test (`tools/web-smoke.mjs`, system Chrome + playwright-core, persistent
+  profile in work/): install from the ISO into OPFS 4,088 files / 822 MB / MD5-verified in ~100 s;
+  WebGL 2 on the real GPU (ANGLE/Vulkan); intros at ~58 fps, menus at the game's ~37 fps; New Game
+  → save → cutscene → first level with HUD all render correctly.
+- Open issue: after creating the save the browser build drops to ~2 fps for a while (native does
+  not) — investigating.

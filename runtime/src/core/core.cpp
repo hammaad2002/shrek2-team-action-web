@@ -1,8 +1,10 @@
 // Logging, dispatch, HLE thunks, PE image loading, guest threads and guest calls.
 #include <csignal>
 #include <cstdio>
+#if !defined(__EMSCRIPTEN__)
 #include <sys/time.h>
 #include <ucontext.h>
+#endif
 #include <cstdlib>
 #include <map>
 #include <chrono>
@@ -260,6 +262,9 @@ void note_present() { g_last_present_ms = now_ms(); }
 // ---- Sampling profiler (SHREK2_PROFILE=start_s:duration_s) --------------------------------------
 // SIGPROF every millisecond of process CPU time records the interrupted host PC; the raw samples
 // are written to work/profile.txt and symbolised offline (tools/profile.py).
+#if defined(__EMSCRIPTEN__)
+static void profiler_start() {}
+#else
 static constexpr size_t kProfMax = 1 << 22;
 static uint64_t* g_prof_pcs = nullptr;
 static std::atomic<size_t> g_prof_n{0};
@@ -307,6 +312,7 @@ static void profiler_start() {
     log(Log::Info, "profiler: wrote %zu samples to work/profile.txt", n);
   }).detach();
 }
+#endif
 
 void watchdog_start() {
   profiler_start();

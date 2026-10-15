@@ -445,7 +445,7 @@ uint32_t sc_Present(Cpu* c, ComObject* self) {
   Device* d = as<SwapChain>(self)->device;
   rec().op(cmd::OpPresent, {(uint32_t)d->frame});
   d->frame++;
-  flush();
+  flush(true);
   return S_OK;
 }
 

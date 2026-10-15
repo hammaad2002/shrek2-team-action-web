@@ -4,6 +4,9 @@
 #include <thread>
 
 #include "../gles/executor.h"
+#if defined(__EMSCRIPTEN__)
+#include "../platform/web.h"
+#endif
 
 using namespace rt;
 
@@ -64,6 +67,23 @@ void recorder_create_device(Device* dev) {
   g_stream.op(cmd::OpSetRenderState, {7, dev->st.rs[7]});
 }
 
+#if defined(__EMSCRIPTEN__)
+
+// The page's main thread owns WebGL: batches are queued and executed there every animation frame.
+void flush(bool present) {
+  size_t cap = g_stream.words.size();
+  web::submit(std::move(g_stream.words), present);
+  g_stream.words = {};
+  g_stream.words.reserve(cap);
+}
+
+void flush_and_wait() {
+  web::submit_and_wait(std::move(g_stream.words));
+  g_stream.words = {};
+}
+
+#else
+
 // Natively the GL context belongs to the first thread that flushes (the game's render thread);
 // commands recorded on other threads simply wait in the stream until that thread flushes.
 static std::thread::id g_gl_thread;
@@ -77,7 +97,7 @@ static bool on_gl_thread() {
   return g_gl_thread == std::this_thread::get_id();
 }
 
-void flush() {
+void flush(bool) {
   if (!on_gl_thread()) return;
   gles::execute(g_stream.words.data(), g_stream.words.size());
   g_stream.clear();
@@ -87,5 +107,7 @@ void flush_and_wait() {
   if (!on_gl_thread()) rt::fatal("Direct3D readback requested from a thread without the GL context");
   flush();
 }
+
+#endif
 
 }  // namespace d3d
