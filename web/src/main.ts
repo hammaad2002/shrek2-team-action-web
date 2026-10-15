@@ -4,7 +4,8 @@
  *
  * Development switches (URL query): `devIso` installs from the dev server's local disc image,
  * `autoplay` starts without waiting for a click, `keys=frame:Code[+hold],...` presses keys at
- * presented frames, `capture=frame,...` keeps PNG snapshots in `window.__shrek2.captures`.
+ * presented frames, `capture=frame,...` keeps PNG snapshots in `window.__shrek2.captures`,
+ * `resetSave` deletes saves first, `env=K=V;...` sets engine environment variables.
  */
 import { KEYS } from "./keys.ts";
 
@@ -95,8 +96,16 @@ interface Engine {
   stringToNewUTF8(s: string): number;
 }
 
+async function resetSaves() {
+  const opfs = await navigator.storage.getDirectory();
+  const game = await (await opfs.getDirectoryHandle(INSTALL_DIR)).getDirectoryHandle("Game");
+  const save = await game.getDirectoryHandle("Save", { create: true });
+  for await (const name of (save as unknown as { keys(): AsyncIterable<string> }).keys()) await save.removeEntry(name);
+}
+
 async function play() {
   setState("starting", "Starting…");
+  if (params.has("resetSave")) await resetSaves();
   $("play-panel").hidden = true;
   const canvas = $<HTMLCanvasElement>("canvas");
   $("game").classList.add("on");
@@ -106,8 +115,16 @@ async function play() {
   await audio.audioWorklet.addModule("/audio-worklet.js");
 
   const { default: createShrek2 } = await import(/* @vite-ignore */ ENGINE_URL);
+  // Development: engine environment variables (SHREK2_WATCHDOG, SHREK2_TRACE, ...) from `env=K=V;K=V`.
+  const env = Object.fromEntries(
+    (params.get("env") ?? "")
+      .split(";")
+      .filter(Boolean)
+      .map((kv) => [kv.slice(0, kv.indexOf("=")), kv.slice(kv.indexOf("=") + 1)]),
+  );
   const engine: Engine = await createShrek2({
     canvas,
+    preRun: [(m: { ENV: Record<string, string> }) => Object.assign(m.ENV, env)],
     print: (s: string) => dev.log.push(s),
     printErr: (s: string) => {
       dev.log.push(s);

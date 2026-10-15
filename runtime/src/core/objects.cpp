@@ -147,20 +147,34 @@ bool vfs_is_dir(const std::string& host_path) {
   return stat(host_path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
 }
 
-// Case-insensitive lookup of one path component inside a host directory.
-static std::string find_entry(const std::string& dir, const std::string& name) {
-  std::string want = lower(name);
-  DIR* d = opendir(dir.c_str());
-  if (!d) return "";
-  std::string found;
-  while (dirent* e = readdir(d)) {
-    if (lower(e->d_name) == want) {
-      found = e->d_name;
-      break;
-    }
+// Case-insensitive lookup of one path component inside a host directory. Listings are cached:
+// on the web, directory enumeration goes through the OPFS proxy and is far too slow to repeat
+// for every CreateFile during level loads. The game only adds files through CreateFile, which
+// registers them below.
+static std::mutex g_dir_mutex;
+static std::unordered_map<std::string, std::unordered_map<std::string, std::string>> g_dir_cache;
+
+static std::unordered_map<std::string, std::string>& listing(const std::string& dir) {
+  auto it = g_dir_cache.find(dir);
+  if (it != g_dir_cache.end()) return it->second;
+  auto& names = g_dir_cache[dir];
+  if (DIR* d = opendir(dir.c_str())) {
+    while (dirent* e = readdir(d)) names.emplace(lower(e->d_name), e->d_name);
+    closedir(d);
   }
-  closedir(d);
-  return found;
+  return names;
+}
+
+static std::string find_entry(const std::string& dir, const std::string& name) {
+  std::lock_guard<std::mutex> lock(g_dir_mutex);
+  auto& names = listing(dir);
+  auto it = names.find(lower(name));
+  return it == names.end() ? "" : it->second;
+}
+
+static void note_created(const std::string& dir, const std::string& name) {
+  std::lock_guard<std::mutex> lock(g_dir_mutex);
+  listing(dir).emplace(lower(name), name);
 }
 
 std::string vfs_host_path(const std::string& guest, bool for_create) {
@@ -179,8 +193,9 @@ std::string vfs_host_path(const std::string& guest, bool for_create) {
     std::string match = find_entry(host, comp);
     bool last = j == rel.size();
     if (match.empty()) {
-      if (last && for_create) match = comp;
-      else return "";
+      if (!last || !for_create) return "";
+      match = comp;
+      note_created(host, comp);  // the caller is about to create it
     }
     host += "/" + match;
     i = j + 1;

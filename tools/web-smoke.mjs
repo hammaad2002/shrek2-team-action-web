@@ -72,8 +72,9 @@ while (Date.now() < deadline) {
   }
   if (s.state === "error") break;
 }
-const engineLog = await page.evaluate(() => window.__shrek2.log.slice(-60).join("\n"));
-console.log("---- engine log (tail) ----\n" + engineLog);
+const engineLog = await page.evaluate(() => window.__shrek2.log.join("\n"));
+writeFileSync("work/web-engine.log", engineLog);
+console.log("---- engine log (tail; full log in work/web-engine.log) ----\n" + engineLog.split("\n").slice(-40).join("\n"));
 const shellLog = await page.evaluate(() => document.getElementById("log").innerText);
 if (shellLog) console.log("---- shell log ----\n" + shellLog);
 await ctx.close();
