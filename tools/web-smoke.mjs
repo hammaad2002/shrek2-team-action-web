@@ -50,6 +50,7 @@ const gl = await page.evaluate(() => {
 console.log(`${stamp()} WebGL2 renderer: ${gl}`);
 
 let lastState = "";
+let lastStatus = "";
 let lastFrames = -1;
 let saved = new Set();
 const deadline = Date.now() + seconds * 1000;
@@ -59,7 +60,8 @@ while (Date.now() < deadline) {
     const d = window.__shrek2;
     return { state: d.state, frames: d.frames, status: document.getElementById("status").textContent, logLen: d.log.length, caps: Object.keys(d.captures) };
   });
-  if (s.state !== lastState) console.log(`${stamp()} state: ${s.state} (${s.status})`);
+  if (s.state !== lastState || (s.state !== "running" && s.status !== lastStatus)) console.log(`${stamp()} state: ${s.state} (${s.status})`);
+  lastStatus = s.status;
   if (s.frames !== lastFrames && s.state === "running") console.log(`${stamp()} frames presented: ${s.frames}`);
   lastState = s.state;
   lastFrames = s.frames;

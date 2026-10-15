@@ -7,11 +7,14 @@
  * presented frames, `capture=frame,...` keeps PNG snapshots in `window.__shrek2.captures`,
  * `resetSave` deletes saves first, `env=K=V;...` sets engine environment variables.
  */
+import { INSTALL_DIR, cacheName, sha256 } from "./cache.ts";
 import { KEYS } from "./keys.ts";
 
-const INSTALL_DIR = "shrek2";
-const ENGINE_URL = "/engine/shrek2.js";
 const params = new URLSearchParams(location.search);
+// The player engine contains no game code: the game is translated in this browser. `devEngine`
+// selects the local C-backend build (development only, served from work/ by the dev server).
+const DEV_ENGINE = params.has("devEngine");
+const ENGINE_URL = DEV_ENGINE ? "/dev-engine/shrek2.js" : "/engine/shrek2_player.js";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = $("status");
@@ -51,6 +54,84 @@ async function installed(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function gameDir(): Promise<FileSystemDirectoryHandle> {
+  return (await navigator.storage.getDirectory()).getDirectoryHandle(INSTALL_DIR);
+}
+
+/** The cached translation of the installed exe, or null when it must be (re)translated. */
+async function cachedTranslation(): Promise<Uint8Array | null> {
+  const root = await gameDir();
+  const exe = await (await (await root.getDirectoryHandle("Game")).getFileHandle("Shrek 2.exe")).getFile();
+  const name = cacheName(await sha256(await exe.arrayBuffer()));
+  try {
+    const f = await (await (await root.getDirectoryHandle("cache")).getFileHandle(name)).getFile();
+    return new Uint8Array(await f.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+function runTranslate(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./translate-worker.ts", import.meta.url), { type: "module" });
+    progress.hidden = false;
+    setState("translating", "Translating the game for this browser…");
+    worker.onmessage = (e: MessageEvent) => {
+      const m = e.data;
+      if (m.type === "progress") {
+        progress.max = m.total || 1;
+        progress.value = m.done;
+        status.textContent =
+          m.phase === "discover" ? "Analysing the game program…" : m.phase === "translate" ? `Translating ${m.done} / ${m.total} functions…` : "Finishing…";
+      } else if (m.type === "done") {
+        worker.terminate();
+        progress.hidden = true;
+        log(`Translated ${m.functions} functions into ${(m.bytes / 1048576).toFixed(1)} MB of WebAssembly in ${m.seconds.toFixed(1)} s`);
+        resolve();
+      } else if (m.type === "error") {
+        worker.terminate();
+        reject(new Error(m.message));
+      }
+    };
+    worker.onerror = (e) => {
+      worker.terminate();
+      reject(new Error(`translator crashed: ${e.message}`));
+    };
+    worker.postMessage({});
+  });
+}
+
+/** Function entry addresses from the module's "shrek2.funcs" custom section. */
+function functionList(wasm: Uint8Array): Uint32Array {
+  let i = 8;
+  const leb = () => {
+    let v = 0, shift = 0, b: number;
+    do {
+      b = wasm[i++];
+      v |= (b & 0x7f) << shift;
+      shift += 7;
+    } while (b & 0x80);
+    return v >>> 0;
+  };
+  while (i < wasm.length) {
+    const id = wasm[i++];
+    const size = leb();
+    const end = i + size;
+    if (id === 0) {
+      const n = leb();
+      const name = new TextDecoder().decode(wasm.subarray(i, i + n));
+      i += n;
+      if (name === "shrek2.funcs") {
+        const dv = new DataView(wasm.buffer, wasm.byteOffset + i, end - i);
+        const count = dv.getUint32(0, true);
+        return Uint32Array.from({ length: count }, (_, k) => dv.getUint32(4 + 4 * k, true));
+      }
+    }
+    i = end;
+  }
+  throw new Error("translated module has no function list");
 }
 
 function runInstall(file: Blob): Promise<void> {
@@ -94,6 +175,9 @@ interface Engine {
   _web_mouse_wheel(dy: number): void;
   _web_focus(focused: number): void;
   stringToNewUTF8(s: string): number;
+  _malloc(n: number): number;
+  _web_game_alloc(n: number): number;
+  _web_game_register(ptr: number, count: number): void;
 }
 
 async function resetSaves() {
@@ -106,6 +190,15 @@ async function resetSaves() {
 async function play() {
   setState("starting", "Starting…");
   if (params.has("resetSave")) await resetSaves();
+  let game: Uint8Array | null = null;
+  if (!DEV_ENGINE) {
+    game = await cachedTranslation();
+    if (!game) {
+      await runTranslate();
+      game = await cachedTranslation();
+      if (!game) throw new Error("translation finished but its output is missing");
+    }
+  }
   $("play-panel").hidden = true;
   const canvas = $<HTMLCanvasElement>("canvas");
   $("game").classList.add("on");
@@ -114,7 +207,8 @@ async function play() {
   const audio = new AudioContext({ sampleRate: 44100, latencyHint: "interactive" });
   await audio.audioWorklet.addModule("/audio-worklet.js");
 
-  const { default: createShrek2 } = await import(/* @vite-ignore */ ENGINE_URL);
+  // Absolute URL: the engine is a static file, not a module for the dev server to transform.
+  const { default: createShrek2 } = await import(/* @vite-ignore */ new URL(ENGINE_URL, location.href).href);
   // Development: engine environment variables (SHREK2_WATCHDOG, SHREK2_TRACE, ...) from `env=K=V;K=V`.
   const env = Object.fromEntries(
     (params.get("env") ?? "")
@@ -152,6 +246,16 @@ async function play() {
   });
   node.connect(audio.destination);
   void audio.resume();
+
+  if (game) {
+    // Hand the translated module and its function list to the engine (instantiated per worker).
+    const ptr = engine._web_game_alloc(game.length);
+    engine.HEAPU8.set(game, ptr);
+    const funcs = functionList(game);
+    const fptr = engine._malloc(funcs.length * 4);
+    new Uint32Array(engine.HEAPU8.buffer, fptr, funcs.length).set(funcs);
+    engine._web_game_register(fptr, funcs.length);
+  }
 
   attachInput(engine, canvas);
 

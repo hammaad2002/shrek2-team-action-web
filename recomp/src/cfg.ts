@@ -94,14 +94,22 @@ export class Program {
     return va >= this.textStart && va < this.textEnd;
   }
 
-  /** Discover every function. */
-  discover(): void {
+  /**
+   * Discover every function. With `speculate: false` only the entry point, hinted entries,
+   * vtables and their call closure are used (the browser translator passes the complete entry
+   * list from metadata/<sha256>.json, so speculative pointer scanning is unnecessary).
+   */
+  discover(opts: { speculate?: boolean } = {}): void {
     const firm = new Set<number>([this.pe.entry, ...(this.hints.entries ?? [])].filter((a) => this.inText(a)));
     for (const [vt, fns] of this.findVtables()) {
       this.vtables.set(vt, fns);
       for (const f of fns) firm.add(f);
     }
     this.closure([...firm], false);
+    if (opts.speculate === false) {
+      this.computeNoReturn();
+      return;
+    }
     // Speculative pointers (data dwords and code immediates), iterated to a fixpoint because
     // newly found functions contribute new immediates. Only targets outside known bodies count.
     const tried = new Set<number>();

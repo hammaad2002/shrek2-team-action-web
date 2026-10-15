@@ -107,6 +107,17 @@ const std::string& thunk_label(uint32_t addr) {
   return i < g_thunks.size() ? g_thunks[i].label : none;
 }
 
+#if defined(RT_PLAYER)
+// Player build: guest code lives in the browser-translated module (web/web_game.cpp).
+bool game_owns(uint32_t target);
+void game_call(Cpu* c, uint32_t target);
+uint32_t game_function_count();
+
+void dispatch_init() {
+  if (!game_function_count()) fatal("no translated game module was provided");
+  log(Log::Info, "dispatch: %u translated functions (in-browser translation)", game_function_count());
+}
+#else
 static uint32_t g_text_lo, g_text_hi;
 static std::vector<GuestFn> g_fn_table;  // direct-mapped over [g_text_lo, g_text_hi)
 
@@ -121,27 +132,44 @@ void dispatch_init() {
   for (uint32_t i = 0; i < recomp_function_count; i++) g_fn_table[recomp_functions[i].addr - g_text_lo] = recomp_functions[i].fn;
   log(Log::Info, "dispatch: %u recompiled functions in [%08x, %08x)", recomp_function_count, g_text_lo, g_text_hi);
 }
+#endif
+
+// HLE entry points (imports and COM methods) live at thunk addresses.
+static bool call_thunk(Cpu* c, uint32_t target) {
+  if (target < kThunkBase || target >= kThunkEnd || (target & 3)) return false;
+  uint32_t i = (target - kThunkBase) / 4;
+  if (i >= g_thunks.size()) return false;
+  if (!g_thunks[i].fn) fatal("unimplemented %s (called indirectly from %08x)", g_thunks[i].label.c_str(), ld32(c->esp));
+  g_thunks[i].fn(c);
+  return true;
+}
 
 }  // namespace rt
 
 extern "C" void rt_dispatch(Cpu* c, uint32_t target) {
   using namespace rt;
+#if defined(RT_PLAYER)
+  if (game_owns(target)) {
+    game_call(c, target);
+    return;
+  }
+#else
   uint32_t off = target - g_text_lo;
   if (off < g_fn_table.size()) {
-    GuestFn fn = g_fn_table[off];
-    if (fn) {
+    if (GuestFn fn = g_fn_table[off]) {
       fn(c);
       return;
     }
-  } else if (target >= kThunkBase && target < kThunkEnd) {
-    uint32_t i = (target - kThunkBase) / 4;
-    if (i < g_thunks.size() && (target & 3) == 0) {
-      if (!g_thunks[i].fn) fatal("unimplemented %s (called indirectly from %08x)", g_thunks[i].label.c_str(), ld32(c->esp));
-      g_thunks[i].fn(c);
-      return;
-    }
   }
+#endif
+  if (call_thunk(c, target)) return;
   fatal("dispatch to unknown guest address 0x%08x (no recompiled function or thunk)", target);
+}
+
+// Fallback used by translated code for targets outside its own function index.
+extern "C" void rt_dispatch_ext(Cpu* c, uint32_t target) {
+  if (rt::call_thunk(c, target)) return;
+  rt::fatal("dispatch to unknown guest address 0x%08x (no translated function or thunk)", target);
 }
 
 namespace rt {

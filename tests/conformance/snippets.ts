@@ -26,7 +26,7 @@ export const IO_OUT_F = IO + 0x40; // up to 7 x f64
 
 const [exePath, hintsPath, outDir] = process.argv.slice(2);
 const pe = new PeImage(new Uint8Array(readFileSync(exePath)));
-const prog = new Program(pe, loadGhidraHints(hintsPath));
+const prog = new Program(pe, await loadGhidraHints(hintsPath));
 prog.discover();
 
 const X87_PREFIX = 0xd8; // escape opcodes d8..df

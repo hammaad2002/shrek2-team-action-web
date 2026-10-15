@@ -70,7 +70,13 @@ def open_lib(path):
     return lib
 
 
-if TRACE_DIFF:
+WASM = os.environ.get("BACKEND") == "wasm"
+if WASM:
+    # WebAssembly backend (recomp gen-wasm) under wasmtime, same interface as the native library.
+    sys.path.insert(0, os.path.dirname(__file__))
+    from wasm_backend import WasmLib
+    lib = WasmLib(os.environ.get("WASM", "work/gen-wasm/game.wasm"), f"{CONF}/libhelpers_wasm.so", Cpu)
+elif TRACE_DIFF:
     lib = open_lib(f"{CONF}/libgame_trace.so")
     lib.test_trace.restype = ctypes.POINTER(ctypes.c_uint32)
     lib.test_trace.argtypes = [ctypes.POINTER(ctypes.c_uint32)]
@@ -79,6 +85,10 @@ if TRACE_DIFF:
 else:
     lib = open_lib(f"{CONF}/libgame.so")
 MEM = lib.test_mem()
+
+
+def native_run(addr, c):
+    return lib.run(addr, c) if WASM else lib.test_run_ms(addr, ctypes.byref(c), 1000)
 
 
 def nwrite(addr, data):
@@ -282,7 +292,7 @@ for fi, f in enumerate(funcs):
         if run_unicorn(addr):
             results["skip"] += 1
             continue
-        rc = lib.test_run_ms(addr, ctypes.byref(c), 1000)
+        rc = native_run(addr, c)
         diffs = [f"native rc={rc}: {lib.test_trap_msg().decode()}"] if rc else compare(c)
         if diffs:
             if TRACE_DIFF and not fdiffs:

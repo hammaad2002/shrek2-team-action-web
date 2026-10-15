@@ -125,3 +125,28 @@ decisions and gotchas — no decompiled code.
   → save → cutscene → first level with HUD all render correctly.
 - Open issue: after creating the save the browser build drops to ~2 fps for a while (native does
   not) — investigating.
+
+## 2026-10-16 — M8: the game is translated inside the player's browser
+- WebAssembly backend (`recomp/src/emit-wasm.ts`, `wasm.ts`): same IR as the C backend, one wasm
+  function per guest function plus `dispatch(c, addr)` (u16 index over .text → call_indirect);
+  shares the runtime's memory; runtime helpers imported as function-table references. Structured
+  control flow with Ramsey's dominator-tree algorithm ("Beyond Relooper"); targets of multiway
+  branches are treated as merge nodes so br_table/br_if have labels; the 5 irreducible functions
+  use a loop + br_table block dispatcher. Division helpers keep recomp.h's no-trap semantics.
+- Conformance: `BACKEND=wasm tests/conformance/funcs.py` runs the module under wasmtime with
+  cpu_helpers.c compiled against the wasm linear memory (`GUEST_BASE` bound at run time):
+  1,521 / 1,530 functions pass — identical to the C backend and with the same 9 known x87 gaps.
+  (wasmtime-py 49 double-wraps shared-memory externs; the harness patches `_as_extern`.)
+- `metadata/<sha256>.json` (121 KB): address-only discovery result for the supported exe (7,482
+  function entries, 46 no-return functions, 790 jump tables). With it the translator skips
+  speculative discovery. `recomp/src/translate.ts` is shared by the CLI and the browser worker;
+  the module writer streams (lift → encode per function) so the browser never holds the whole IR.
+- Browser: `web/src/translate-worker.ts` reads Shrek 2.exe from OPFS, checks its SHA-256 against
+  the shipped metadata, translates (Chrome: 7,482 functions → 18.9 MB in 3.9 s) and caches the
+  module in OPFS (`shrek2/cache/game-<sha16>-t<version>.wasm`). iced-x86's Node-only build is
+  exposed to the browser through a Vite virtual ES module (`initIced(bytes)`; exports aliased to
+  avoid clashing with the CommonJS top-level classes).
+- Runtime `shrek2_player` (RT_PLAYER): 1.08 MB wasm, no game code; each worker that runs guest
+  code instantiates the translated module lazily (synchronous compile from shared memory).
+- Result: in headless Chrome the deployable player path installs from the ISO, translates the exe,
+  and runs intros, menus and attract demos at the game's normal ~37 fps.

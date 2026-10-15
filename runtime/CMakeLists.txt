@@ -87,6 +87,18 @@ if(EMSCRIPTEN)
     -sEXPORTED_FUNCTIONS=${WEB_EXPORTS}
     -sEXPORTED_RUNTIME_METHODS=callMain,ccall,cwrap,HEAPU8,HEAPU32,HEAPF32,stringToNewUTF8,ENV
     -sASSERTIONS=1)
+
+  # Player build (deployable): no game code inside; the game is translated in the player's browser
+  # and loaded as a separate module (src/web/web_game.cpp).
+  add_executable(shrek2_player ${RUNTIME_SOURCES} src/platform/platform_web.cpp src/web/web_main.cpp src/web/web_game.cpp)
+  target_compile_definitions(shrek2_player PRIVATE RT_PLAYER=1)
+  target_include_directories(shrek2_player PRIVATE include src ${FFMPEG_WEB}/include)
+  target_compile_options(shrek2_player PRIVATE -Wall -Wextra -Wno-unused-parameter)
+  target_link_libraries(shrek2_player PRIVATE dlmalloc ${FFMPEG_WEB}/lib/libavcodec.a ${FFMPEG_WEB}/lib/libavutil.a)
+  set(PLAYER_EXPORTS "${WEB_EXPORTS},_web_game_alloc,_web_game_register,_web_game_import,_web_game_bytes,_web_game_len,_web_game_index")
+  get_target_property(WEB_LINK_OPTIONS shrek2 LINK_OPTIONS)
+  list(TRANSFORM WEB_LINK_OPTIONS REPLACE "^-sEXPORTED_FUNCTIONS=.*" "-sEXPORTED_FUNCTIONS=${PLAYER_EXPORTS}")
+  target_link_options(shrek2_player PRIVATE ${WEB_LINK_OPTIONS} -sALLOW_TABLE_GROWTH=1)
 else()
   find_package(SDL2 REQUIRED)
   find_package(PkgConfig REQUIRED)

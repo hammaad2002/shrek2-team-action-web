@@ -11,7 +11,7 @@ import { Mnemonic, Register } from "../../recomp/src/x86.ts";
 
 const [exePath, hintsPath, outPath] = process.argv.slice(2);
 const pe = new PeImage(new Uint8Array(readFileSync(exePath)));
-const prog = new Program(pe, loadGhidraHints(hintsPath));
+const prog = new Program(pe, await loadGhidraHints(hintsPath));
 prog.discover();
 
 const localOk = new Map<number, boolean>();
