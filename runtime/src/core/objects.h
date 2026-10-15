@@ -3,6 +3,7 @@
 
 #include <condition_variable>
 #include <cstdio>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -62,11 +63,15 @@ struct FileObject : KObject {
   const char* kind() const override { return "file"; }
 };
 
+// Win32 mutex. Like NT, a release hands ownership directly to the longest waiter, so a thread
+// that releases and immediately re-waits cannot starve the others (the game's streaming thread
+// does exactly that around a Sleep(1)).
 struct MutexObject : KObject {
   std::mutex m;
   std::condition_variable cv;
   uint32_t owner = 0;
   uint32_t count = 0;
+  std::deque<uint32_t> waiters;
   std::string name;
   const char* kind() const override { return "mutex"; }
   bool wait(uint32_t timeout_ms) override;

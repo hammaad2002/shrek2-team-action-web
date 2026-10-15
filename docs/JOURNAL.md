@@ -78,3 +78,17 @@ decisions and gotchas — no decompiled code.
   menu renders correctly at 60 fps, and the idle attract-mode demo video starts.
 - Test hooks: `SHREK2_HIDDEN=1` (hidden window), `SHREK2_DUMP=n,..` (frame dumps to work/frames),
   `SHREK2_VSYNC=0`, `SHREK2_TRACE=com,hle,draws,uploads,bink,shaders,debug`.
+
+## 2026-10-16 — New game → storybook intro → first in-engine cutscene (native)
+- Win32 mutex semantics matter: the streaming thread (0x5347d0) holds the sound mutex across its
+  Sleep(1) and re-waits immediately after ReleaseMutex. NT hands a released mutex to the longest
+  waiter; a naive condvar mutex lets the releasing thread win every time and the main thread's
+  10 ms waits time out → ~3 fps menus. MutexObject now hands ownership over FIFO.
+- The game writes `Save\save.bin` (+`_2`, `_3`) with CreateFileA(OPEN_ALWAYS) relative to the game
+  directory and never creates the folder; the MSI has no CreateFolder entry for it either. The
+  runtime creates `Game/Save` at startup.
+- Test tooling: `SHREK2_INPUT="frame:Key[+hold],..."` (scripted key presses by presented frame),
+  `SHREK2_WATCHDOG=s` (per-thread HLE activity + guest backtraces when presents stall),
+  `SHREK2_STATUS=1` (periodic thread status).
+- Result: New Game → create save → save slot A → storybook intro → in-engine cutscene (Shrek and
+  Fiona in the swamp, subtitles) at 60 fps, ~630 draws / 81k triangles per frame.

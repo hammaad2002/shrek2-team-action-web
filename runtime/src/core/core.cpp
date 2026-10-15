@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <map>
+#include <chrono>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -227,7 +228,15 @@ extern "C" void rt_hle(Cpu* c, uint32_t index) {
   Import& im = g_imports[index];
   if (!im.fn) fatal("unimplemented import %s!%s (called from %08x)", im.dll.c_str(), im.name.c_str(), ld32(c->esp));
   if (trace_enabled("hle")) log(Log::Hle, "%s(%08x, %08x, %08x, %08x) from %08x", im.name.c_str(), arg(c, 0), arg(c, 1), arg(c, 2), arg(c, 3), ld32(c->esp));
+  GuestThread* t = current_thread();
+  if (t) {
+    t->in_hle = im.name.c_str();
+    t->last_hle = im.name.c_str();
+    t->hle_ret = ld32(c->esp);
+    t->hle_calls++;
+  }
   im.fn(c);
+  if (t) t->in_hle = nullptr;
 }
 
 namespace rt {
@@ -235,6 +244,52 @@ namespace rt {
 // ---- Threads -------------------------------------------------------------------------------
 
 static thread_local GuestThread* t_current = nullptr;
+static std::mutex g_threads_mutex;
+static std::vector<GuestThread*> g_threads;
+static std::atomic<int64_t> g_last_present_ms{0};
+
+static int64_t now_ms() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+void note_present() { g_last_present_ms = now_ms(); }
+
+void watchdog_start() {
+  const char* env = getenv("SHREK2_WATCHDOG");
+  if (!env) return;
+  int64_t limit = (int64_t)atoi(env) * 1000;
+  std::thread([limit] {
+    std::vector<uint64_t> prev;
+    bool reported = false;
+    for (;;) {
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+      int64_t last = g_last_present_ms.load();
+      if (!last) continue;
+      static int tick = 0;
+      bool periodic = getenv("SHREK2_STATUS") && ++tick % 5 == 0;
+      if (now_ms() - last < limit && !periodic) {
+        reported = false;
+        continue;
+      }
+      std::lock_guard<std::mutex> lock(g_threads_mutex);
+      prev.resize(g_threads.size());
+      std::lock_guard<std::mutex> llock(g_log_mutex);
+      fprintf(stderr, "[watchdog] last frame presented %lld ms ago\n", (long long)(now_ms() - last));
+      for (size_t i = 0; i < g_threads.size(); i++) {
+        GuestThread* t = g_threads[i];
+        if (t->finished) continue;
+        uint64_t calls = t->hle_calls.load();
+        const char* in = t->in_hle.load();
+        const char* lastc = t->last_hle.load();
+        fprintf(stderr, "  thread %u: %s%s (ret %08x), %llu HLE calls in the last second, last call %s\n", t->id, in ? "in " : "running guest code",
+                in ? in : "", t->hle_ret.load(), (unsigned long long)(calls - prev[i]), lastc ? lastc : "-");
+        if (!reported && now_ms() - last >= limit) backtrace(&t->cpu);
+        prev[i] = calls;
+      }
+      if (now_ms() - last >= limit) reported = true;
+    }
+  }).detach();
+}
 static std::atomic<uint32_t> g_next_tid{0x100};
 static uint32_t g_peb;
 
@@ -254,6 +309,10 @@ GuestThread* create_guest_thread(uint32_t stack_size) {
   }
   auto* t = new GuestThread();
   t->id = g_next_tid.fetch_add(4);
+  {
+    std::lock_guard<std::mutex> lock(g_threads_mutex);
+    g_threads.push_back(t);
+  }
   stack_size = std::max<uint32_t>((stack_size + kGranularity - 1) & ~(kGranularity - 1), 0x40000);
   uint32_t stack = vm_reserve(0, stack_size);
   if (!stack || !vm_commit(stack, stack_size)) fatal("cannot allocate a %u-byte guest stack", stack_size);

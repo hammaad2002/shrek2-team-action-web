@@ -1,6 +1,7 @@
 // Handle table, waitable objects and the virtual file system.
 #include "objects.h"
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 #include <dirent.h>
@@ -52,10 +53,18 @@ bool MutexObject::wait(uint32_t timeout_ms) {
     count++;
     return true;
   }
-  if (!wait_cv(cv, lk, timeout_ms, [&] { return owner == 0; })) return false;
-  owner = me;
-  count = 1;
-  return true;
+  if (owner == 0 && waiters.empty()) {
+    owner = me;
+    count = 1;
+    return true;
+  }
+  if (timeout_ms == 0) return false;
+  waiters.push_back(me);
+  if (!wait_cv(cv, lk, timeout_ms, [&] { return owner == me; })) {
+    waiters.erase(std::find(waiters.begin(), waiters.end(), me));
+    return false;
+  }
+  return true;  // the releasing thread set owner/count for us
 }
 
 bool MutexObject::release() {
@@ -63,8 +72,14 @@ bool MutexObject::release() {
   std::lock_guard<std::mutex> lk(m);
   if (owner != me) return false;
   if (--count == 0) {
-    owner = 0;
-    cv.notify_one();
+    if (waiters.empty()) {
+      owner = 0;
+    } else {
+      owner = waiters.front();
+      waiters.pop_front();
+      count = 1;
+      cv.notify_all();
+    }
   }
   return true;
 }
@@ -87,6 +102,10 @@ static std::string g_host_root;  // host directory corresponding to kInstallDir 
 void vfs_init(const std::string& host_install_root) {
   g_host_root = host_install_root;
   if (!g_host_root.empty() && g_host_root.back() != '/') g_host_root += '/';
+  // The game writes Save\save.bin (OPEN_ALWAYS, no CreateDirectory) but the MSI never creates
+  // the folder, so provide it.
+  std::string game = g_host_root + "Game";
+  if (vfs_is_dir(game)) mkdir((game + "/Save").c_str(), 0755);
 }
 
 std::string vfs_host_root() { return g_host_root; }

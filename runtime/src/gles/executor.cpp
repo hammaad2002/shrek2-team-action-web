@@ -371,6 +371,8 @@ static void maybe_dump_frame() {
 
 static void present() {
   g.frames++;
+  plat::frame_presented(g.frames);
+  rt::note_present();
   maybe_dump_frame();
   int ww, wh;
   plat::get_window_size(&ww, &wh);

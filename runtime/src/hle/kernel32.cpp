@@ -441,6 +441,7 @@ HLE_STDCALL(kDll, SetThreadPriority, 2) { return 1; }
 
 HLE_STDCALL(kDll, Sleep, 1) {
   uint32_t ms = arg(c, 0);
+  if (ms > 2000 && ms != 0xffffffffu) log(Log::Warn, "Sleep(%u ms) from %08x", ms, ld32(c->esp));
   if (ms) std::this_thread::sleep_for(std::chrono::milliseconds(ms));
   else std::this_thread::yield();
   return 0;

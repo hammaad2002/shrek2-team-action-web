@@ -21,6 +21,7 @@ int main(int argc, char** argv) {
   std::vector<uint8_t> exe((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
   rt::load_image(exe);
   rt::dispatch_init();
+  rt::watchdog_start();
 
   rt::GuestThread* t = rt::create_guest_thread(0x100000);
   rt::bind_host_thread(t);

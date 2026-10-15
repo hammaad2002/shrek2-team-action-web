@@ -81,7 +81,17 @@ struct GuestThread {
   uint32_t handle = 0;       // kernel handle for this thread (waitable)
   std::atomic<bool> finished{false};
   uint32_t exit_code = 0x103;  // STILL_ACTIVE
+  // Watchdog bookkeeping: the HLE function currently executing and a running call count.
+  std::atomic<const char*> in_hle{nullptr};
+  std::atomic<uint32_t> hle_ret{0};
+  std::atomic<uint64_t> hle_calls{0};
+  std::atomic<const char*> last_hle{nullptr};
 };
+
+// Called by the renderer for every presented frame; SHREK2_WATCHDOG=<seconds> reports what each
+// guest thread is doing when no frame has been presented for that long.
+void note_present();
+void watchdog_start();
 
 GuestThread* current_thread();
 GuestThread* create_guest_thread(uint32_t stack_size);

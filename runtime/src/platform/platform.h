@@ -32,6 +32,8 @@ const uint8_t* keyboard_state();
 struct MouseState { int32_t dx, dy, wheel; uint8_t buttons[4]; };
 MouseState take_mouse_state();
 bool has_window();
+// Called once per presented frame (drives scripted input: SHREK2_INPUT="frame:Key[+hold],...").
+void frame_presented(uint64_t frame);
 // OpenGL ES 3.0 context for the renderer (created on the calling thread).
 bool gl_create_context();
 void gl_swap();

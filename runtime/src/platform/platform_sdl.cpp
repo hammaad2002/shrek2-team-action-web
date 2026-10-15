@@ -2,8 +2,12 @@
 // DirectInput/PC set-1 scan codes).
 #include <SDL2/SDL.h>
 
+#include <atomic>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <string>
+#include <vector>
 
 #include "../core/rt.h"
 #include "platform.h"
@@ -156,7 +160,12 @@ void get_window_size(int* width, int* height) {
 
 void show_cursor(bool visible) { SDL_ShowCursor(visible ? SDL_ENABLE : SDL_DISABLE); }
 
+namespace {
+void scripted_events(std::vector<InputEvent>& out);
+}
+
 void poll_events(std::vector<InputEvent>& out) {
+  scripted_events(out);
   SDL_Event e;
   while (SDL_PollEvent(&e)) {
     InputEvent ev{};
@@ -230,6 +239,73 @@ void poll_events(std::vector<InputEvent>& out) {
 }
 
 const uint8_t* keyboard_state() { return g_keys; }
+
+// ---- Scripted input (automated tests) ----------------------------------------------------------
+// SHREK2_INPUT="3600:Return,3700:Down+10,..." presses the SDL key named after the colon at that
+// presented frame, holding it for 4 frames (or the +N given).
+namespace {
+struct ScriptedKey {
+  uint64_t frame;
+  SDL_Scancode sc;
+  uint32_t hold;
+  bool down_sent = false, up_sent = false;
+};
+std::vector<ScriptedKey> g_script;
+std::atomic<uint64_t> g_frame{0};
+bool g_script_parsed = false;
+
+void parse_script() {
+  g_script_parsed = true;
+  const char* e = getenv("SHREK2_INPUT");
+  if (!e) return;
+  std::string s = e;
+  size_t pos = 0;
+  while (pos < s.size()) {
+    size_t end = s.find(',', pos);
+    std::string item = s.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+    pos = end == std::string::npos ? s.size() : end + 1;
+    size_t colon = item.find(':');
+    if (colon == std::string::npos) continue;
+    ScriptedKey k{};
+    k.frame = strtoull(item.c_str(), nullptr, 10);
+    std::string key = item.substr(colon + 1);
+    k.hold = 4;
+    size_t plus = key.find('+');
+    if (plus != std::string::npos) {
+      k.hold = (uint32_t)atoi(key.c_str() + plus + 1);
+      key = key.substr(0, plus);
+    }
+    k.sc = SDL_GetScancodeFromName(key.c_str());
+    if (k.sc == SDL_SCANCODE_UNKNOWN) rt::log(rt::Log::Warn, "SHREK2_INPUT: unknown key '%s'", key.c_str());
+    else g_script.push_back(k);
+  }
+}
+
+void scripted_events(std::vector<InputEvent>& out) {
+  if (!g_script_parsed) parse_script();
+  uint64_t f = g_frame.load();
+  for (auto& k : g_script) {
+    const KeyMap* m = lookup(k.sc);
+    if (!m) continue;
+    bool want_down = f >= k.frame && !k.down_sent, want_up = f >= k.frame + k.hold && k.down_sent && !k.up_sent;
+    if (!want_down && !want_up) continue;
+    InputEvent ev{};
+    ev.kind = want_down ? InputEvent::KeyDown : InputEvent::KeyUp;
+    ev.vk = m->vk;
+    ev.scancode = m->dik;
+    g_keys[dik_index(m->dik)] = want_down ? 0x80 : 0;
+    out.push_back(ev);
+    if (want_down) {
+      k.down_sent = true;
+      rt::log(rt::Log::Info, "scripted input: %s down at frame %llu", SDL_GetScancodeName(k.sc), (unsigned long long)f);
+    } else {
+      k.up_sent = true;
+    }
+  }
+}
+}  // namespace
+
+void frame_presented(uint64_t frame) { g_frame = frame; }
 
 MouseState take_mouse_state() {
   std::lock_guard<std::mutex> lock(g_mouse_mutex);
