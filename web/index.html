@@ -32,6 +32,10 @@
       .note { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
       footer { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 12px; }
       footer a { color: var(--ink); }
+      details { margin-top: 14px; }
+      summary { cursor: pointer; color: var(--ink); }
+      details ul { padding-left: 20px; }
+      details code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
       #save-confirm { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
       #save-confirm p { margin: 0 0 10px; color: var(--ink); }
       h3 { font-size: 15px; margin: 20px 0 6px; color: var(--accent); }
@@ -85,6 +89,15 @@
       <div class="panel" id="install-panel" hidden>
         <p>Choose your <strong>Shrek 2 Team Action</strong> disc image (.iso). It is unpacked into this browser's private storage (about 900 MB).</p>
         <label class="button">Choose disc image<input id="iso" type="file" accept=".iso" hidden /></label>
+        <details class="note" id="iso-help">
+          <summary>How do I make a disc image from my CD?</summary>
+          <ul>
+            <li><strong>Windows:</strong> insert the game CD, then in a free disc tool such as AnyBurn choose “Copy disc to image file” and save it as an .iso file.</li>
+            <li><strong>Mac:</strong> in Disk Utility choose File → New Image → Image from the CD, with the format “DVD/CD master”, then rename the .cdr file to .iso.</li>
+            <li><strong>Linux:</strong> <code>dd if=/dev/sr0 of=shrek2.iso bs=2048 status=progress</code></li>
+          </ul>
+          <p>No CD drive? A USB CD/DVD drive works. The image never leaves your computer: this page reads it inside your browser.</p>
+        </details>
       </div>
       <div class="panel" id="play-panel" hidden>
         <div class="row">

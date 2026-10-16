@@ -11,6 +11,10 @@ and Bink interfaces the game uses.
 Not affiliated with or endorsed by Activision, DreamWorks Animation or Beenox.
 
 ## Playing
+- **Your disc image:** make an .iso of your own *Shrek 2 Team Action* PC CD — on Windows with a
+  free tool such as AnyBurn (“Copy disc to image file”), on a Mac with Disk Utility (File → New
+  Image → Image from the CD, format “DVD/CD master”, then rename the .cdr to .iso), on Linux with
+  `dd if=/dev/sr0 of=shrek2.iso bs=2048`. The image never leaves your computer.
 - **Browsers:** current desktop Chrome, Edge, Firefox or Safari, in a normal (not private)
   window. About 1 GB of storage is needed. Unpacking takes under a minute (Firefox: about three
   minutes), once; translating the game takes a few seconds the first time.

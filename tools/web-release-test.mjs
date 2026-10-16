@@ -59,6 +59,19 @@ await page.click("#help-close");
 await page.waitForFunction((n) => window.__shrek2.state === "error" || window.__shrek2.frames >= n, want, { timeout: 900_000, polling: 2000 });
 const s = await page.evaluate(() => ({ state: window.__shrek2.state, frames: window.__shrek2.frames, log: document.getElementById("log").innerText }));
 check(s.state === "running" && s.frames >= want, `translated and ran to frame ${want}`, `${secs()} s; ${s.log.split("\n").filter(Boolean).pop() ?? ""}`);
+// The controls list in game, twice: the game must keep running after each close.
+const after = [];
+for (let i = 0; i < 2; i++) {
+  await page.keyboard.press("F1");
+  await page.locator("#help").waitFor({ state: "visible" });
+  await page.waitForTimeout(500);
+  await page.keyboard.press("F1");
+  await page.locator("#help").waitFor({ state: "hidden" });
+  const f0 = await page.evaluate(() => window.__shrek2.frames);
+  await page.waitForTimeout(2000);
+  after.push((await page.evaluate(() => window.__shrek2.frames)) - f0);
+}
+check(after.every((n) => n > 20), "F1 controls list pauses and resumes the game", `frames in 2 s after each close: ${after.join(", ")}`);
 await page.screenshot({ path: `work/release-test-${browser}.png` });
 const engineLog = await page.evaluate(() => window.__shrek2.log.join("\n"));
 writeFileSync(`work/release-test-${browser}.log`, engineLog);

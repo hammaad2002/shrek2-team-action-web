@@ -279,3 +279,17 @@ decisions and gotchas — no decompiled code.
   with `worker.plugins`. Afterwards Chrome, Firefox and WebKit all pass: install 21 s / 186 s /
   26 s, translation 2.5–4.1 s, play to the menus, a save backup restored into the new install,
   no console or engine errors.
+
+## 2026-10-16 — Launch; F1 freeze
+- Live at https://shrek2-team-action.pages.dev (classic Cloudflare Pages project; wrangler
+  4.151 delegates new projects to Workers unless `--force`), source at
+  https://github.com/hammaad2002/shrek2-team-action-web. Live check passed (install 21 s,
+  translation 2.6 s, save restore, play, no errors).
+- F1 sometimes froze the picture while audio played: the in-game close handler of the controls
+  list was set once and consumed by the first close, so from the second close on the game stayed
+  "unfocused" (device lost, paused). `Help.show()` now takes its close handler per showing, marks
+  itself open synchronously (no double opening) and a held key toggles once. Verified with six
+  open/close cycles (F1, button, Esc; 50 ms to 2 s) in the menu and in level 1 in Chrome,
+  Firefox and WebKit; web-ui-test and web-release-test now check it.
+- A download link to a third-party copy of the game was requested and not added (the site only
+  works with the player's own disc); the page and README explain how to image one's own CD.

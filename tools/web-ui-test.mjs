@@ -240,13 +240,23 @@ if (!only || only === "help") {
   const events = await page.evaluate((n) => window.__shrek2.log.slice(n).filter((l) => l.includes("input: event")), n0);
   check(events.some((l) => /event 8 /.test(l)) && events.some((l) => /event 7 /.test(l)), "game paused (focus lost) while open, resumed after", events.join(" | "));
   check(!events.some((l) => /vk=0x58/.test(l)), "keys do not reach the game while the list is open");
-  await page.mouse.move(600, 300);
-  await page.mouse.move(640, 320);
-  await page.click("#help-button");
-  await page.locator("#help").waitFor({ state: "visible" });
-  await page.keyboard.press("Escape");
-  await page.locator("#help").waitFor({ state: "hidden" });
-  check(true, "HUD Controls button opens the list; Esc closes it");
+  // Every close must resume the game (the first version only resumed after the first close).
+  const resumes = [];
+  for (const [how, ms] of [["F1", 300], ["button", 800], ["F1", 50], ["Escape", 1200]]) {
+    if (how === "button") {
+      await page.mouse.move(600, 300);
+      await page.mouse.move(640, 320);
+      await page.click("#help-button");
+    } else await page.keyboard.press("F1");
+    await page.locator("#help").waitFor({ state: "visible" });
+    await page.waitForTimeout(ms);
+    await page.keyboard.press(how === "Escape" ? "Escape" : "F1");
+    await page.locator("#help").waitFor({ state: "hidden" });
+    const f0 = await page.evaluate(() => window.__shrek2.frames);
+    await page.waitForTimeout(2000);
+    resumes.push((await page.evaluate(() => window.__shrek2.frames)) - f0);
+  }
+  check(resumes.every((n) => n > 20), "the game resumes after every close (F1, Controls button, Esc)", `frames in 2 s after each: ${resumes.join(", ")}`);
 }
 
 await ctx.close();

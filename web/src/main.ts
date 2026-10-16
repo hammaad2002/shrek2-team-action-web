@@ -303,16 +303,14 @@ async function play() {
   // F1 or the HUD's Controls button: the controls list. The game is paused meanwhile (as when the
   // window loses focus) and gets no input.
   const toggleHelp = () => {
-    if (help.isOpen) help.hide();
-    else {
-      input.suspend(true);
-      if (document.pointerLockElement) document.exitPointerLock();
-      void help.show("Back to the game (F1)").catch((err: unknown) => log(String(err), true));
-    }
-  };
-  help.onClose = () => {
-    input.suspend(false);
-    canvas.focus();
+    if (help.isOpen) return help.hide();
+    input.suspend(true);
+    if (document.pointerLockElement) document.exitPointerLock();
+    const resume = () => {
+      input.suspend(false);
+      canvas.focus();
+    };
+    void help.show("Back to the game (F1)", resume).catch((err: unknown) => log(String(err), true));
   };
   input.options.onHelp = toggleHelp;
   $("help-button").addEventListener("click", toggleHelp);
@@ -567,11 +565,9 @@ async function main() {
   // The first start shows the controls first.
   $("play").addEventListener("click", () => {
     if (help.seen) return void play().catch(fail);
-    help.onClose = () => void play().catch(fail);
-    void help.show("Play").catch(fail);
+    void help.show("Play", () => void play().catch(fail)).catch(fail);
   });
   $("controls").addEventListener("click", () => {
-    help.onClose = null;
     void help.show().catch(fail);
   });
   $("reinstall").addEventListener("click", askInstall);

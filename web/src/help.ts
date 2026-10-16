@@ -4,14 +4,13 @@
  * the play panel's Controls button or with F1 / the HUD's Controls button in game.
  */
 import type { Prefs } from "./prefs.ts";
-import { ACTIONS, dikLabel, keyLabel, padBindingLabel, prepareSettings, type GameSettings } from "./settings.ts";
+import { ACTIONS, defaultSettings, dikLabel, keyLabel, padBindingLabel, prepareSettings, type GameSettings } from "./settings.ts";
 
 const SEEN = "shrek2.controlsSeen";
 
 export class Help {
   isOpen = false;
-  /** Called when the list is closed (once per show). */
-  onClose: (() => void) | null = null;
+  private closeHandler: (() => void) | null = null;
   private readonly prefs: Prefs;
   private readonly el: HTMLElement;
 
@@ -29,7 +28,7 @@ export class Help {
         if (!this.isOpen || (e.code !== "Escape" && e.code !== "F1")) return;
         e.preventDefault();
         e.stopImmediatePropagation();
-        this.hide();
+        if (!e.repeat) this.hide(); // a held key toggles once
       },
       true,
     );
@@ -43,12 +42,21 @@ export class Help {
     }
   }
 
-  async show(closeLabel = "Close"): Promise<void> {
-    this.render(await prepareSettings(), closeLabel);
+  /**
+   * Show the list; `onClose` runs when this showing of it is closed. (A handler kept across
+   * showings was consumed by the first close, so the game, paused while the list is open, never
+   * resumed after the second.)
+   */
+  async show(closeLabel = "Close", onClose: (() => void) | null = null): Promise<void> {
+    if (this.isOpen) return;
+    this.isOpen = true;
+    this.closeHandler = onClose;
+    const settings = await prepareSettings().catch(() => defaultSettings());
+    if (!this.isOpen) return; // closed again while the settings loaded
+    this.render(settings, closeLabel);
     // In fullscreen only the fullscreen element's subtree is visible.
     (document.fullscreenElement ?? document.body).append(this.el);
     this.el.hidden = false;
-    this.isOpen = true;
     document.getElementById("help-close")!.focus();
     try {
       localStorage.setItem(SEEN, "1");
@@ -61,8 +69,8 @@ export class Help {
     if (!this.isOpen) return;
     this.el.hidden = true;
     this.isOpen = false;
-    const done = this.onClose;
-    this.onClose = null;
+    const done = this.closeHandler;
+    this.closeHandler = null;
     done?.();
   }
 
