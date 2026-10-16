@@ -112,9 +112,22 @@ if (!only || only === "settings") {
   await page.locator("#settings-panel").waitFor({ state: "visible" });
   check((await page.locator("#set-resolution option:checked").innerText()) === "1024 × 768", "default resolution 1024 × 768");
   const rows = await page.locator("#set-bindings tbody tr").evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll("td")].map((td) => td.querySelector(".binding")?.textContent ?? td.textContent)));
-  const want = [["Move Up", "W", "Left stick ↕"], ["Jump", "Space", "A"], ["Attack", "Enter", "X"], ["Special", "Left Shift", "Y"], ["Start (pause)", "Esc", "Start"], ["Display HUD", "Tab", "Back"]];
+  const want = [
+    ["Move Up", "↑", "Left stick ↕"], ["Zoom In", "Num 8", "Right stick ↕"], ["Jump", "Space", "A"], ["Use", "Z", "B"], ["Attack", "X", "X"],
+    ["Special", "C", "Y"], ["Start (pause)", "Esc", "Start"], ["Next Character", "A", "RB"], ["Previous Character", "S", "LB"], ["Display HUD", "D", "Back"],
+  ];
   for (const w of want) check(rows.some((r) => r.join("|") === w.join("|")), `default binding ${w[0]}`, rows.find((r) => r[0] === w[0])?.join(" | "));
   check(/Test Controller/.test(await page.locator("#set-pad-status").innerText()), "controller listed for player 1", await page.locator("#set-pad-status").innerText());
+
+  // The manual's layout as a preset, then back to the game's.
+  await page.click("#set-keys-manual");
+  await page.waitForFunction(() => /Saved/.test(document.getElementById("set-status").textContent));
+  let presetReg = await registry(page);
+  check(presetReg.k0_0 === String(0x11) && presetReg.k0_9 === String(0x21), "manual (W A S D) preset", `k0_0=${presetReg.k0_0} k0_9=${presetReg.k0_9}`);
+  await page.click("#set-keys-game");
+  await page.waitForFunction(() => /Saved/.test(document.getElementById("set-status").textContent));
+  presetReg = await registry(page);
+  check(presetReg.k0_0 === String(0xc8) && presetReg.k0_9 === String(0x2c), "game (arrow keys) preset", `k0_0=${presetReg.k0_0} k0_9=${presetReg.k0_9}`);
 
   // Rebind Jump to J on the keyboard.
   const jump = page.locator("#set-bindings tbody tr", { hasText: "Jump" });

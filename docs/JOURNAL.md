@@ -221,3 +221,20 @@ decisions and gotchas — no decompiled code.
   floored at −10000 — so steady music already matched, and the linear HLE only differed during
   fades and at lower in-game volume settings. The HLE now uses the same curve
   (amplitude (v/32767)^1.667, capped at unity as DirectSound rejects positive values).
+
+## 2026-10-16 — Keep the game's own keys; controls list
+- The user had learned the game's built-in layout (WinMain 0x4a8ef1, used when no Launcher
+  settings exist): arrows move, Num 8/2/4/6 zoom and camera, Space jump, Z use, X attack, C
+  special, Esc start, A/S next/previous character, D HUD. The first settings version wrote the
+  Launcher's W/S/A/D set (the manual's) and Launcher mouse buttons, so those keys stopped working.
+  Defaults are now the game's own layout with mouse buttons unbound (as without the Launcher);
+  settings still holding exactly the old page defaults are migrated (`webdefaults` = 2 beside
+  the game's values). The manual's layout is a preset in Settings.
+- Controls list (`web/src/help.ts`): shown once before the first start, from the play panel, and
+  in game with F1 or the HUD's Controls button; the game is paused meanwhile (focus-loss
+  emulation) and gets no input.
+- Other browsers so far: Firefox 157 and WebKit 27.2 (Playwright builds) install, translate and
+  run at ~37 fps. Firefox's OPFS costs ~50–60 ms per file regardless of concurrency (install
+  ~4 min); the installer no longer fsyncs each file (Chrome 100 s → ~60 s), and an
+  `.installing` marker keeps an interrupted install from counting as installed. Private windows
+  (Firefox: no OPFS; Safari: no sync handles) get a clear message.

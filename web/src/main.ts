@@ -7,16 +7,16 @@
  * presented frames, `capture=frame,...` keeps PNG snapshots in `window.__shrek2.captures`,
  * `resetSave` deletes saves first, `env=K=V;...` sets engine environment variables.
  */
-import { INSTALL_DIR, cacheName, sha256 } from "./cache.ts";
+import { INSTALL_DIR, INSTALLING_MARKER, cacheName, sha256 } from "./cache.ts";
 import { canLockEscape, enterFullscreen, exitFullscreen, isFullscreen, watchFullscreen } from "./fullscreen.ts";
 import { Gamepads } from "./gamepads.ts";
 import { Input } from "./input.ts";
 import { KEYS } from "./keys.ts";
 import { loadPrefs } from "./prefs.ts";
-import { loadRegistry, saveRegistry } from "./registry.ts";
+import { Help } from "./help.ts";
 import { applyImport, exportSaves, listSaves, planImport, type ImportPlan } from "./saves.ts";
 import { SettingsPanel } from "./settings-ui.ts";
-import { defaultSettings, hasSettings, keyLabel, readSettings, writeSettings, type GameSettings } from "./settings.ts";
+import { keyLabel, prepareSettings } from "./settings.ts";
 
 const params = new URLSearchParams(location.search);
 // The player engine contains no game code: the game is translated in this browser. `devEngine`
@@ -27,6 +27,7 @@ const ENGINE_URL = DEV_ENGINE ? "/dev-engine/shrek2.js" : "/engine/shrek2_player
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const prefs = loadPrefs();
 const pads = new Gamepads();
+const help = new Help(prefs);
 const status = $("status");
 const progress = $<HTMLProgressElement>("progress");
 const logEl = $("log");
@@ -60,9 +61,15 @@ async function installed(): Promise<boolean> {
     const root = await opfs.getDirectoryHandle(INSTALL_DIR);
     const game = await root.getDirectoryHandle("Game");
     await game.getFileHandle("Shrek 2.exe");
-    return true;
   } catch {
     return false;
+  }
+  try {
+    // Left behind by an install that did not finish.
+    await (await (await navigator.storage.getDirectory()).getDirectoryHandle(INSTALL_DIR)).getFileHandle(INSTALLING_MARKER);
+    return false;
+  } catch {
+    return true;
   }
 }
 
@@ -144,7 +151,25 @@ function functionList(wasm: Uint8Array): Uint32Array {
   throw new Error("translated module has no function list");
 }
 
-function runInstall(file: Blob): Promise<void> {
+/** The installed game takes about 850 MB; refuse early when the browser grants less. */
+async function checkSpace(): Promise<void> {
+  const NEED = 900 * 1048576;
+  try {
+    // A reinstall overwrites the existing files in place.
+    await (await navigator.storage.getDirectory()).getDirectoryHandle(INSTALL_DIR);
+    return;
+  } catch {
+    // Not installed yet.
+  }
+  const est = await navigator.storage.estimate().catch(() => ({}) as StorageEstimate);
+  if (est.quota !== undefined && est.quota - (est.usage ?? 0) < NEED) {
+    const mb = (n: number) => `${Math.floor(n / 1048576)} MB`;
+    throw new Error(`This browser lets this site store ${mb(est.quota - (est.usage ?? 0))}, and the game needs about ${mb(NEED)}. Free some disk space, or try another browser.`);
+  }
+}
+
+async function runInstall(file: Blob): Promise<void> {
+  await checkSpace();
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL("./install-worker.ts", import.meta.url), { type: "module" });
     progress.hidden = false;
@@ -197,18 +222,6 @@ async function resetSaves() {
   const game = await (await opfs.getDirectoryHandle(INSTALL_DIR)).getDirectoryHandle("Game");
   const save = await game.getDirectoryHandle("Save", { create: true });
   for await (const name of (save as unknown as { keys(): AsyncIterable<string> }).keys()) await save.removeEntry(name);
-}
-
-/**
- * The game's settings, writing the Launcher's defaults on first start (the game reads missing
- * values as 0xFFFFFFFF) and rewriting all values so the controller GUIDs are always present.
- */
-async function prepareSettings(): Promise<GameSettings> {
-  const r = await loadRegistry();
-  const s = hasSettings(r) ? readSettings(r) : defaultSettings();
-  writeSettings(s, r);
-  await saveRegistry(r);
-  return s;
 }
 
 async function play() {
@@ -284,6 +297,22 @@ async function play() {
   }
 
   const input = new Input(engine, canvas, { pauseAlias: prefs.pauseAlias, mouseCapture: settings.mouseEnabled });
+  // F1 or the HUD's Controls button: the controls list. The game is paused meanwhile (as when the
+  // window loses focus) and gets no input.
+  const toggleHelp = () => {
+    if (help.isOpen) help.hide();
+    else {
+      input.suspend(true);
+      if (document.pointerLockElement) document.exitPointerLock();
+      void help.show("Back to the game (F1)").catch((err: unknown) => log(String(err), true));
+    }
+  };
+  help.onClose = () => {
+    input.suspend(false);
+    canvas.focus();
+  };
+  input.options.onHelp = toggleHelp;
+  $("help-button").addEventListener("click", toggleHelp);
   attachHud(input);
 
   // Scripted keys for automated tests: frame:Code[+hold]
@@ -475,6 +504,19 @@ function attachSaves() {
 
 // ---- Startup -----------------------------------------------------------------------------------
 
+function probeStorage(): Promise<string> {
+  return new Promise((resolve) => {
+    const worker = new Worker(new URL("./opfs-probe-worker.ts", import.meta.url), { type: "module" });
+    const done = (result: string) => {
+      worker.terminate();
+      resolve(result);
+    };
+    worker.onmessage = (e: MessageEvent<string>) => done(e.data);
+    worker.onerror = (e) => done(`worker failed: ${e.message}`);
+    worker.postMessage(0);
+  });
+}
+
 async function main() {
   if (!crossOriginIsolated) {
     setState("error", "This page must be served with cross-origin isolation (COOP/COEP headers).");
@@ -482,6 +524,12 @@ async function main() {
   }
   if (!("storage" in navigator) || !navigator.storage.getDirectory) {
     setState("error", "This browser does not support the Origin Private File System.");
+    return;
+  }
+  const storage = await probeStorage();
+  if (storage !== "ok") {
+    setState("error", "This window cannot store the game. Private browsing windows do not allow it: open the page in a normal window.");
+    log(`storage check: ${storage}`, true);
     return;
   }
   void navigator.storage.persist?.();
@@ -513,7 +561,16 @@ async function main() {
       fail(err);
     }
   });
-  $("play").addEventListener("click", () => void play().catch(fail));
+  // The first start shows the controls first.
+  $("play").addEventListener("click", () => {
+    if (help.seen) return void play().catch(fail);
+    help.onClose = () => void play().catch(fail);
+    void help.show("Play").catch(fail);
+  });
+  $("controls").addEventListener("click", () => {
+    help.onClose = null;
+    void help.show().catch(fail);
+  });
   $("reinstall").addEventListener("click", askInstall);
   const settingsPanel = new SettingsPanel(prefs, pads);
   $("settings").addEventListener("click", () => void settingsPanel.open().catch(fail));

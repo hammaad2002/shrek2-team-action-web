@@ -13,7 +13,7 @@
  *   before the first start.
  */
 import { KEYS } from "./keys.ts";
-import { Registry, SETTINGS_KEY } from "./registry.ts";
+import { Registry, SETTINGS_KEY, loadRegistry, saveRegistry } from "./registry.ts";
 
 export const PLAYERS = 4;
 
@@ -65,10 +65,15 @@ export interface GameSettings {
   pads: number[][];
 }
 
-// The Launcher's defaults (its tables at 0x42b668 and its GetProfileInt defaults); the keys match
-// the controls printed in the manual. Its gamepad defaults (player 1 only, for buttons 7-10 of a
-// 2004 pad) are replaced by a layout for today's Xbox-style controllers, for every player.
-const DEFAULT_KEYS = [0x11, 0x1f, 0x1e, 0x20, 0xc8, 0xd0, 0xcb, 0xcd, 0x39, 0x21, 0x1c, 0x2a, 0x01, 0x4f, 0x50, 0x0f];
+// Keyboard: the game's own defaults (WinMain 0x4a8ef1, used when no Launcher settings exist):
+// arrows move, Num 8/2/4/6 zoom and turn the camera, Space Z X C jump/use/attack/special, Esc
+// start, A/S next/previous character, D HUD. MANUAL_KEYS is the Launcher's set printed in the
+// manual (W S A D ...), offered as a preset. Other values follow the Launcher (its
+// GetProfileInt defaults), except mouse buttons, which the game leaves unbound without it. The
+// Launcher's gamepad defaults (player 1 only, buttons 7-10 of a 2004 pad) are replaced by a
+// layout for today's Xbox-style controllers, for every player.
+export const GAME_KEYS = [0xc8, 0xd0, 0xcb, 0xcd, 0x48, 0x50, 0x4b, 0x4d, 0x39, 0x2c, 0x2d, 0x2e, 0x01, 0x1e, 0x1f, 0x20];
+export const MANUAL_KEYS = [0x11, 0x1f, 0x1e, 0x20, 0xc8, 0xd0, 0xcb, 0xcd, 0x39, 0x21, 0x1c, 0x2a, 0x01, 0x4f, 0x50, 0x0f];
 const DEFAULT_PAD = [
   2, 2, // left stick up/down
   1, 1, // left stick left/right
@@ -92,8 +97,8 @@ export function defaultSettings(): GameSettings {
     mouseEnabled: true,
     mouseSensitivity: 100,
     mouseWheel: true,
-    mouseButtons: [0x6, 0x4, 0x5],
-    keys: Array.from({ length: PLAYERS }, (_, p) => (p === 0 ? [...DEFAULT_KEYS] : Array(ACTIONS.length).fill(0))),
+    mouseButtons: [0, 0, 0],
+    keys: Array.from({ length: PLAYERS }, (_, p) => (p === 0 ? [...GAME_KEYS] : Array(ACTIONS.length).fill(0))),
     pads: Array.from({ length: PLAYERS }, () => [...DEFAULT_PAD]),
   };
 }
@@ -105,6 +110,34 @@ export function padGuid(p: number): string {
 
 export function hasSettings(r: Registry): boolean {
   return r.dword(SETTINGS_KEY, "resolution") !== undefined;
+}
+
+// Version of this page's defaults, kept beside the game's values (the game ignores it). Version 1
+// wrote the Launcher's keys and mouse buttons; settings still holding exactly those go back to the
+// game's own layout.
+const WEB_DEFAULTS = "webdefaults";
+const WEB_DEFAULTS_VERSION = 2;
+
+function migrate(r: Registry): void {
+  if ((r.dword(SETTINGS_KEY, WEB_DEFAULTS) ?? 1) >= WEB_DEFAULTS_VERSION || !hasSettings(r)) return;
+  const dw = (name: string) => r.dword(SETTINGS_KEY, name);
+  const set = (name: string, value: number) => r.set(SETTINGS_KEY, name, { type: "dword", value });
+  if (MANUAL_KEYS.every((k, a) => dw(`k0_${a}`) === k)) GAME_KEYS.forEach((k, a) => set(`k0_${a}`, k));
+  if (dw("mousebindl") === 0x6 && dw("mousebindr") === 0x4 && dw("mousebindm") === 0x5) ["mousebindl", "mousebindr", "mousebindm"].forEach((n) => set(n, 0));
+}
+
+/**
+ * The game's settings, ready for a start: defaults on the first start (the game reads missing
+ * values as 0xFFFFFFFF), older page defaults migrated, and every value written so the controller
+ * GUIDs are always present.
+ */
+export async function prepareSettings(): Promise<GameSettings> {
+  const r = await loadRegistry();
+  migrate(r);
+  const s = hasSettings(r) ? readSettings(r) : defaultSettings();
+  writeSettings(s, r);
+  await saveRegistry(r);
+  return s;
 }
 
 export function readSettings(r: Registry): GameSettings {
@@ -125,6 +158,7 @@ export function readSettings(r: Registry): GameSettings {
 
 export function writeSettings(s: GameSettings, r: Registry): void {
   const dw = (name: string, value: number) => r.set(SETTINGS_KEY, name, { type: "dword", value });
+  dw(WEB_DEFAULTS, WEB_DEFAULTS_VERSION);
   dw("resolution", s.resolution);
   dw("options", s.options);
   dw("distance", s.distance);

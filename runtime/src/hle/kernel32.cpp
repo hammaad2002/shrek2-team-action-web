@@ -1,6 +1,9 @@
 // kernel32.dll: process, memory, threads, synchronisation, files, time, locale and module APIs.
 #include <chrono>
 #include <cstdlib>
+#include <mutex>
+#include <set>
+#include <string>
 #include <thread>
 #include <unordered_map>
 
@@ -76,7 +79,7 @@ std::recursive_mutex* cs_get(uint32_t addr) {
 std::mutex g_tls_mutex;
 uint64_t g_tls_used = 0;
 
-uint32_t g_env_a, g_env_w, g_cmdline, g_startup;
+uint32_t g_env_a, g_env_w, g_cmdline;
 
 }  // namespace
 
@@ -136,10 +139,19 @@ HLE_STDCALL(kDll, GetModuleHandleA, 1) {
   return h;
 }
 
+// D3DX loads d3d9.dll and looks up DebugSetMute on every shader and effect it creates: log each
+// distinct lookup once.
+static bool first_time(const std::string& what) {
+  static std::mutex m;
+  static std::set<std::string> seen;
+  std::lock_guard<std::mutex> lock(m);
+  return seen.insert(what).second;
+}
+
 HLE_STDCALL(kDll, LoadLibraryA, 1) {
   std::string n = read_cstr(arg(c, 0));
   uint32_t h = module_handle(n);
-  log(Log::Info, "LoadLibraryA(\"%s\") -> %08x", n.c_str(), h);
+  if (first_time("load " + lower(n)) || trace_enabled("hle")) log(Log::Info, "LoadLibraryA(\"%s\") -> %08x", n.c_str(), h);
   if (!h) set_last_error(ERROR_MOD_NOT_FOUND);
   return h;
 }
@@ -150,7 +162,8 @@ HLE_STDCALL(kDll, GetProcAddress, 2) {
   const char* dll = module_name(mod);
   HleFn fn = dll ? hle_find(dll, name) : nullptr;
   if (!fn) {
-    log(Log::Info, "GetProcAddress(%s, %s) -> not provided", dll ? dll : "?", name.c_str());
+    if (first_time(std::string(dll ? dll : "?") + "!" + name) || trace_enabled("hle"))
+      log(Log::Info, "GetProcAddress(%s, %s) -> not provided", dll ? dll : "?", name.c_str());
     set_last_error(ERROR_PROC_NOT_FOUND);
     return 0;
   }

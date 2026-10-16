@@ -3,7 +3,9 @@
 //   saves   — back up, delete, restore (ZIP from the page, a deflated ZIP with folders, single
 //             files), overwrite confirmation, rejection of other files
 //   view    — game view HUD, cursor hidden by the game, fullscreen, pointer lock, pause-key alias
-//   node tools/web-ui-test.mjs [--port 5174] [--only saves|view] [--headed]
+//   help    — settings written by the first page version migrate to the game's keys; the controls
+//             list before the first start, and with F1 / the HUD button in game (game paused)
+//   node tools/web-ui-test.mjs [--port 5174] [--only saves|view|help] [--headed]
 // Needs the dev server (cd web && npx vite --port 5174) and an installed game in that port's
 // profile (run tools/web-smoke.mjs with devIso first). Saves must exist for the saves part.
 import { execFileSync } from "node:child_process";
@@ -198,6 +200,59 @@ if (!only || only === "view") {
   writeFileSync(join(tmp, "engine.log"), engineLog.join("\n"));
   const saveOpens = engineLog.filter((l) => /CreateFile\([^)]*Save[\\/]save\.bin/i.test(l));
   check(saveOpens.length > 0, "the game opens its save files", saveOpens.slice(0, 3).join(" | "));
+}
+
+if (!only || only === "help") {
+  await page.goto(base);
+  await waitState("ready");
+  // Settings as the first version of the page wrote them: the Launcher's keys and mouse buttons.
+  await page.evaluate(async () => {
+    const key = "hkcu\\software\\activision\\shrek 2 team action\\settings";
+    const manual = [0x11, 0x1f, 0x1e, 0x20, 0xc8, 0xd0, 0xcb, 0xcd, 0x39, 0x21, 0x1c, 0x2a, 0x01, 0x4f, 0x50, 0x0f];
+    let text = `${key}\tresolution\tdword\t2\n${key}\tmousebindl\tdword\t6\n${key}\tmousebindr\tdword\t4\n${key}\tmousebindm\tdword\t5\n`;
+    manual.forEach((k, a) => (text += `${key}\tk0_${a}\tdword\t${k}\n`));
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle("shrek2");
+    const w = await (await dir.getFileHandle("registry.txt", { create: true })).createWritable();
+    await w.write(text);
+    await w.close();
+    localStorage.removeItem("shrek2.controlsSeen");
+  });
+  await page.goto(`${base}?env=SHREK2_TRACE=input`);
+  await waitState("ready");
+  await page.click("#play");
+  await page.locator("#help").waitFor({ state: "visible" });
+  const rows = await page.locator("#help tbody tr").evaluateAll((trs) => trs.map((tr) => [...tr.children].map((td) => td.textContent).join(" | ")));
+  const want = ["Move Up | ↑ | Left stick ↕", "Zoom In | Num 8 | Right stick ↕", "Cam Left | Num 4 | Right stick ↔", "Jump | Space | A", "Use | Z | B", "Attack | X | X", "Special | C | Y", "Start (pause) | Esc | Start", "Next Character | A | RB", "Previous Character | S | LB", "Display HUD | D | Back"];
+  for (const w of want) check(rows.includes(w), `controls list: ${w}`);
+  check((await page.locator("#help-close").innerText()) === "Play", "first start shows the controls with a Play button");
+  const mouse = await page.locator("#help-mouse").innerText();
+  check(/Wheel/.test(mouse) && !/Left button/.test(mouse), "mouse buttons unbound after migration", mouse.replace(/\n/g, " | "));
+  const reg = await page.evaluate(async () => {
+    const f = await (await (await (await navigator.storage.getDirectory()).getDirectoryHandle("shrek2")).getFileHandle("registry.txt")).getFile();
+    return Object.fromEntries((await f.text()).split("\n").filter(Boolean).map((l) => l.split("\t")).map((p) => [p[1], p[3]]));
+  });
+  check(reg.k0_0 === String(0xc8) && reg.k0_9 === String(0x2c) && reg.mousebindl === "0" && reg.webdefaults === "2", "old page defaults migrated", `k0_0=${reg.k0_0} k0_9=${reg.k0_9} mousebindl=${reg.mousebindl}`);
+  await page.click("#help-close");
+  await waitState("running", 120_000);
+  await page.waitForFunction(() => window.__shrek2.frames > 60, null, { timeout: 120_000 });
+  const n0 = await page.evaluate(() => window.__shrek2.log.length);
+  await page.keyboard.press("F1");
+  await page.locator("#help").waitFor({ state: "visible" });
+  check((await page.locator("#help-close").innerText()) === "Back to the game (F1)", "F1 opens the controls in game");
+  await page.keyboard.press("KeyX"); // must not reach the game while the list is open
+  await page.keyboard.press("F1");
+  await page.locator("#help").waitFor({ state: "hidden" });
+  await page.waitForTimeout(300);
+  const events = await page.evaluate((n) => window.__shrek2.log.slice(n).filter((l) => l.includes("input: event")), n0);
+  check(events.some((l) => /event 8 /.test(l)) && events.some((l) => /event 7 /.test(l)), "game paused (focus lost) while open, resumed after", events.join(" | "));
+  check(!events.some((l) => /vk=0x58/.test(l)), "keys do not reach the game while the list is open");
+  await page.mouse.move(600, 300);
+  await page.mouse.move(640, 320);
+  await page.click("#help-button");
+  await page.locator("#help").waitFor({ state: "visible" });
+  await page.keyboard.press("Escape");
+  await page.locator("#help").waitFor({ state: "hidden" });
+  check(true, "HUD Controls button opens the list; Esc closes it");
 }
 
 await ctx.close();

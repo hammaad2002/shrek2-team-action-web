@@ -7,8 +7,9 @@ import { KEYS } from "./keys.ts";
 import { DEFAULT_PREFS, savePrefs, type Prefs } from "./prefs.ts";
 import { loadRegistry, saveRegistry } from "./registry.ts";
 import {
-  ACTIONS, OPT_CLIPPING, OPT_SHADOWS, PLAYERS, RESOLUTIONS, bindKey, bindPad, defaultSettings, dikForCode, dikLabel,
-  keyLabel, padBindingLabel, padCodeForAxis, padCodeForButton, readSettings, writeSettings, type GameSettings,
+  ACTIONS, GAME_KEYS, MANUAL_KEYS, OPT_CLIPPING, OPT_SHADOWS, PLAYERS, RESOLUTIONS, bindKey, bindPad, defaultSettings,
+  dikForCode, dikLabel, keyLabel, padBindingLabel, padCodeForAxis, padCodeForButton, prepareSettings, writeSettings,
+  type GameSettings,
 } from "./settings.ts";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -31,7 +32,7 @@ export class SettingsPanel {
   }
 
   async open(): Promise<void> {
-    this.settings = readSettings(await loadRegistry());
+    this.settings = await prepareSettings();
     this.render();
     $("settings-panel").hidden = false;
     $("play-panel").hidden = true;
@@ -79,6 +80,15 @@ export class SettingsPanel {
     change("set-wheel", (el) => (this.settings.mouseWheel = el.checked));
     [0, 1, 2].forEach((i) => change(`set-mouse-${i}`, (el) => (this.settings.mouseButtons[i] = Number(el.value))));
     $("set-alias").addEventListener("click", (e) => this.startCapture({ kind: "alias", player: 0, action: 0, el: e.currentTarget as HTMLElement }));
+    const preset = (keys: number[]) => () => {
+      this.cancelCapture();
+      // The player's keys become the preset; other players keep theirs unless they clash.
+      for (let p = 0; p < PLAYERS; p++) if (p !== this.player) this.settings.keys[p] = this.settings.keys[p].map((k) => (keys.includes(k) ? 0 : k));
+      this.settings.keys[this.player] = [...keys];
+      this.changed();
+    };
+    $("set-keys-game").addEventListener("click", preset(GAME_KEYS));
+    $("set-keys-manual").addEventListener("click", preset(MANUAL_KEYS));
     $("settings-close").addEventListener("click", () => this.close());
     $("set-revert").addEventListener("click", () => ($("set-revert-confirm").hidden = false));
     $("set-revert-no").addEventListener("click", () => ($("set-revert-confirm").hidden = true));

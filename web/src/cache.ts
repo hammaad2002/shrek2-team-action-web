@@ -2,6 +2,8 @@
 import { TRANSLATOR_VERSION } from "../../recomp/src/version.ts";
 
 export const INSTALL_DIR = "shrek2";
+/** Present in INSTALL_DIR while an install is in progress (or was interrupted). */
+export const INSTALLING_MARKER = ".installing";
 
 /** Cached in-browser translation of a given Shrek 2.exe (by SHA-256) for this translator version. */
 export function cacheName(sha: string): string {

@@ -17,6 +17,8 @@ export interface InputOptions {
   pauseAlias: string;
   /** Lock the pointer on click so mouse movement turns the camera (the game's "mouse camera"). */
   mouseCapture: boolean;
+  /** F1: show or hide the controls list. */
+  onHelp?: () => void;
 }
 
 export class Input {
@@ -25,6 +27,8 @@ export class Input {
   private readonly canvas: HTMLCanvasElement;
   /** Buttons whose press only captured the pointer (their release is not sent either). */
   private readonly swallowed = new Set<number>();
+  /** While suspended (an overlay is open) the game gets no input and is told it lost focus. */
+  private suspended = false;
 
   constructor(engine: InputEngine, canvas: HTMLCanvasElement, options: InputOptions) {
     this.engine = engine;
@@ -37,6 +41,7 @@ export class Input {
       engine._web_mouse_move(x, y, e.movementX, e.movementY);
     });
     canvas.addEventListener("mousedown", (e) => {
+      if (this.suspended) return;
       // The click that captures the pointer is not a game click (mouse buttons may be bound to
       // actions such as Attack).
       if (this.options.mouseCapture && document.pointerLockElement !== canvas) {
@@ -54,11 +59,26 @@ export class Input {
     });
     canvas.addEventListener("wheel", (e) => engine._web_mouse_wheel(e.deltaY < 0 ? 1 : -1), { passive: true });
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-    window.addEventListener("focus", () => engine._web_focus(1));
+    window.addEventListener("focus", () => {
+      if (!this.suspended) engine._web_focus(1);
+    });
     window.addEventListener("blur", () => engine._web_focus(0));
   }
 
+  /** Pause the game (as when the window loses focus, which also releases held keys) or resume it. */
+  suspend(on: boolean): void {
+    if (on === this.suspended) return;
+    this.suspended = on;
+    this.engine._web_focus(on ? 0 : 1);
+  }
+
   private key(e: KeyboardEvent, down: boolean): void {
+    if (e.code === "F1") {
+      e.preventDefault();
+      if (down && !e.repeat) this.options.onHelp?.();
+      return;
+    }
+    if (this.suspended) return;
     const code = e.code === this.options.pauseAlias ? "Escape" : e.code;
     const key = KEYS[code];
     if (!key) return;
