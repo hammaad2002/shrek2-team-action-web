@@ -150,3 +150,14 @@ decisions and gotchas — no decompiled code.
   code instantiates the translated module lazily (synchronous compile from shared memory).
 - Result: in headless Chrome the deployable player path installs from the ISO, translates the exe,
   and runs intros, menus and attract demos at the game's normal ~37 fps.
+
+## 2026-10-16 — Focus-loss freeze (reported by the user)
+- Symptom: clicking outside the browser froze the game permanently. The WndProc (0x4a7510) clears
+  the active flag on WM_ACTIVATE(WA_INACTIVE) and, because the game runs fullscreen
+  (0x5e2365), also sets device-lost flags 0x5f4e59/0x5f4e5a. Its recovery routine (0x52df00)
+  only calls Reset() when TestCooperativeLevel returns D3DERR_DEVICENOTRESET, which the HLE never
+  did — so the loop called the recovery routine forever and never rendered again.
+- Fix: D3D9 device-loss emulation (lost on deactivation of a fullscreen device; DEVICELOST while
+  inactive, DEVICENOTRESET when active; Present returns DEVICELOST) and Reset() now unbinds
+  resources and resets the executor's state (OpResetState). Verified with simulated blur/focus in
+  headless Chrome during the intro and during gameplay.
