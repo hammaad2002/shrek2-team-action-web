@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Licenses — Shrek 2 Team Action in your browser</title>
+    <style>
+      :root { --bg: #11160f; --panel: #1c2418; --ink: #e8ecd9; --muted: #a5ad93; --accent: #9ccc3c; }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 system-ui, sans-serif; }
+      main { max-width: 760px; margin: 0 auto; padding: 32px 16px; }
+      h1 { font-size: 24px; margin: 0 0 8px; }
+      h2 { font-size: 17px; margin: 28px 0 6px; color: var(--accent); }
+      p, li { color: var(--muted); }
+      strong, a { color: var(--ink); }
+      code { background: var(--panel); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Licenses and notices</h1>
+      <p><a href="./">← Back to the game</a></p>
+
+      <h2>This site</h2>
+      <p>The page, the installer, the in-browser translator and the engine are open source:
+        <a href="__REPO_URL__">__REPO_URL__</a> (see its LICENSE file). The site contains no part of
+        <em>Shrek 2 Team Action</em>: players unpack their own disc image in their browser, and the
+        game's program is translated there.</p>
+      <p>Not affiliated with or endorsed by Activision, DreamWorks Animation or Beenox. <em>Shrek</em> and
+        related names are trademarks of DreamWorks Animation L.L.C.; <em>Shrek 2 Team Action</em> is
+        published by Activision. Bink is a technology of RAD Game Tools.</p>
+
+      <h2>FFmpeg (libavcodec, libavutil) — LGPL 2.1 or later</h2>
+      <p>The engine (<code>engine/shrek2_player.wasm</code>) is statically linked with a minimal build of
+        <strong>FFmpeg 7.1.1</strong> containing only the Bink video and Bink audio decoders. FFmpeg is
+        licensed under the <a href="https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html">GNU Lesser
+        General Public License, version 2.1 or later</a>.</p>
+      <ul>
+        <li>Unmodified source: <a href="https://ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz">ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz</a></li>
+        <li>Build configuration: <code>tools/build-ffmpeg-web.sh</code> in this site's source repository.</li>
+        <li>To use a modified FFmpeg, rebuild the engine from the repository with <code>tools/build-web.sh</code>
+          (instructions in its README); the whole engine source is available, so it can be relinked.</li>
+      </ul>
+
+      <h2>iced-x86 — MIT</h2>
+      <p>The in-browser translator decodes x86 instructions with <a href="https://github.com/icedland/iced">iced</a>
+        (iced-x86 1.21.0), Copyright (C) 2018-present iced project and contributors, under the MIT license.</p>
+
+      <h2>Emscripten — MIT</h2>
+      <p>The engine is compiled with <a href="https://emscripten.org">Emscripten</a> 6.0.12, whose runtime code
+        and system libraries are included in it: Emscripten's own code (MIT), musl libc (MIT), and LLVM's
+        libc++, libc++abi and compiler-rt (Apache License 2.0 with LLVM Exceptions).</p>
+
+      <h2>dlmalloc — MIT-0</h2>
+      <p>Memory allocator by Doug Lea, released to the public domain and re-licensed under MIT-0.</p>
+
+      <h2>Vite — MIT</h2>
+      <p>The page is built with <a href="https://vite.dev">Vite</a>; its small module-loading helper is part of
+        the page's script.</p>
+
+      <h2>MIT license text</h2>
+      <p>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+        associated documentation files (the "Software"), to deal in the Software without restriction,
+        including without limitation the rights to use, copy, modify, merge, publish, distribute,
+        sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+        furnished to do so, subject to the following conditions: The above copyright notice and this
+        permission notice shall be included in all copies or substantial portions of the Software. THE
+        SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+        LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+        NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+        DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+        OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</p>
+    </main>
+  </body>
+</html>

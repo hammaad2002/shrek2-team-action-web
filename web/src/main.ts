@@ -2,11 +2,14 @@
  * Page shell: installs the game from the player's disc image into OPFS, then starts the engine
  * (WebAssembly runtime on worker threads) and drives rendering, input and audio from the page.
  *
- * Development switches (URL query): `devIso` installs from the dev server's local disc image,
- * `autoplay` starts without waiting for a click, `keys=frame:Code[+hold],...` presses keys at
- * presented frames, `capture=frame,...` keeps PNG snapshots in `window.__shrek2.captures`,
- * `resetSave` deletes saves first, `env=K=V;...` sets engine environment variables.
+ * Development switches (URL query; the dev server only — a production build ignores the query,
+ * so no shared link can, say, delete a visitor's saves): `devIso` installs from the dev server's
+ * local disc image, `autoplay` starts without waiting for a click, `keys=frame:Code[+hold],...`
+ * presses keys at presented frames, `capture=frame,...` keeps PNG snapshots in
+ * `window.__shrek2.captures`, `resetSave` deletes saves first, `env=K=V;...` sets engine
+ * environment variables, `devEngine` uses the local C-backend engine build.
  */
+/// <reference types="vite/client" />
 import { INSTALL_DIR, INSTALLING_MARKER, cacheName, sha256 } from "./cache.ts";
 import { canLockEscape, enterFullscreen, exitFullscreen, isFullscreen, watchFullscreen } from "./fullscreen.ts";
 import { Gamepads } from "./gamepads.ts";
@@ -18,10 +21,10 @@ import { applyImport, exportSaves, listSaves, planImport, type ImportPlan } from
 import { SettingsPanel } from "./settings-ui.ts";
 import { keyLabel, prepareSettings } from "./settings.ts";
 
-const params = new URLSearchParams(location.search);
+const params = new URLSearchParams(import.meta.env.DEV ? location.search : "");
 // The player engine contains no game code: the game is translated in this browser. `devEngine`
-// selects the local C-backend build (development only, served from work/ by the dev server).
-const DEV_ENGINE = params.has("devEngine");
+// selects the local C-backend build (served from work/ by the dev server).
+const DEV_ENGINE = import.meta.env.DEV && params.has("devEngine");
 const ENGINE_URL = DEV_ENGINE ? "/dev-engine/shrek2.js" : "/engine/shrek2_player.js";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -577,7 +580,7 @@ async function main() {
   attachSaves();
 
   if (await installed()) showPlay();
-  else if (params.has("devIso")) {
+  else if (import.meta.env.DEV && params.has("devIso")) {
     try {
       setState("downloading", "Fetching the development disc image…");
       const blob = await (await fetch("/dev-iso")).blob();

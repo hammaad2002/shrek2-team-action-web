@@ -1,0 +1,18 @@
+# Cloudflare Pages response headers (also mirrored by vite.config.ts for the dev and preview
+# servers). Cross-origin isolation is required: the engine's threads share memory.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Resource-Policy: same-origin
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+
+# Content-hashed bundles never change.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Fixed names: always revalidate.
+/engine/*
+  Cache-Control: no-cache
+/audio-worklet.js
+  Cache-Control: no-cache

@@ -98,6 +98,8 @@ if(EMSCRIPTEN)
   set(PLAYER_EXPORTS "${WEB_EXPORTS},_web_game_alloc,_web_game_register,_web_game_import,_web_game_bytes,_web_game_len,_web_game_index")
   get_target_property(WEB_LINK_OPTIONS shrek2 LINK_OPTIONS)
   list(TRANSFORM WEB_LINK_OPTIONS REPLACE "^-sEXPORTED_FUNCTIONS=.*" "-sEXPORTED_FUNCTIONS=${PLAYER_EXPORTS}")
+  # The deployable build drops Emscripten's runtime assertions (the development engine keeps them).
+  list(TRANSFORM WEB_LINK_OPTIONS REPLACE "^-sASSERTIONS=1$" "-sASSERTIONS=0")
   target_link_options(shrek2_player PRIVATE ${WEB_LINK_OPTIONS} -sALLOW_TABLE_GROWTH=1)
 else()
   find_package(SDL2 REQUIRED)

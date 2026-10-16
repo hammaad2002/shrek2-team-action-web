@@ -30,6 +30,8 @@
       #log { white-space: pre-wrap; font: 12px/1.4 ui-monospace, monospace; color: var(--muted); max-height: 180px; overflow: auto; }
       .error { color: var(--danger); }
       .note { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
+      footer { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 12px; }
+      footer a { color: var(--ink); }
       #save-confirm { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
       #save-confirm p { margin: 0 0 10px; color: var(--ink); }
       h3 { font-size: 15px; margin: 20px 0 6px; color: var(--accent); }
@@ -150,6 +152,10 @@
         </div>
       </div>
       <div id="log"></div>
+      <footer class="note">
+        Not affiliated with or endorsed by Activision, DreamWorks Animation or Beenox. This site hosts none of the game's files: you need your own disc image.
+        <a href="__REPO_URL__">Source code</a> · <a href="licenses.html">Licenses</a>
+      </footer>
     </div>
     <div id="game">
       <canvas id="canvas" tabindex="0"></canvas>
