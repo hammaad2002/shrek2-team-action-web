@@ -5,14 +5,14 @@
 //   view    — game view HUD, cursor hidden by the game, fullscreen, pointer lock, pause-key alias
 //   help    — settings written by the first page version migrate to the game's keys; the controls
 //             list before the first start, and with F1 / the HUD button in game (game paused)
-//   node tools/web-ui-test.mjs [--port 5174] [--only saves|view|help] [--headed]
+//   node tools/web-ui-test.mjs [--port 5174] [--only saves|view|help] [--browser chrome|firefox|webkit] [--headed]
 // Needs the dev server (cd web && npx vite --port 5174) and an installed game in that port's
 // profile (run tools/web-smoke.mjs with devIso first). Saves must exist for the saves part.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { chromium } from "playwright-core";
+import { browserArgs, launch } from "./browsers.mjs";
 
 const args = process.argv.slice(2);
 const opt = (name, dflt) => {
@@ -33,13 +33,7 @@ const check = (ok, what, detail = "") => {
 };
 const sha = (b) => createHash("sha256").update(b).digest("hex").slice(0, 16);
 
-const ctx = await chromium.launchPersistentContext(`work/chrome-profile-${port}`, {
-  executablePath: "/usr/bin/google-chrome",
-  headless: !args.includes("--headed"),
-  viewport: { width: 1280, height: 960 },
-  acceptDownloads: true,
-  args: ["--autoplay-policy=no-user-gesture-required", "--enable-gpu", "--ignore-gpu-blocklist", "--use-angle=vulkan", "--enable-features=Vulkan", "--enable-unsafe-swiftshader"],
-});
+const ctx = await launch({ ...browserArgs(args), port, extra: { acceptDownloads: true } });
 const page = ctx.pages()[0] ?? (await ctx.newPage());
 page.on("pageerror", (e) => console.log(`pageerror: ${e.message}`));
 

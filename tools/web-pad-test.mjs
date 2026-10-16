@@ -5,9 +5,9 @@
 //              substitute Esc key, Revert to defaults; values checked in OPFS registry.txt
 //   play     — starts a new game using only the controller (A through the menus, left stick up to
 //              walk, Start to pause), captures frames to work/web-frames-pad
-//   node tools/web-pad-test.mjs [--port 5174] [--only settings|play] [--seconds 260]
+//   node tools/web-pad-test.mjs [--port 5174] [--only settings|play] [--seconds 260] [--browser chrome|firefox|webkit]
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { chromium } from "playwright-core";
+import { browserArgs, launch as launchBrowser } from "./browsers.mjs";
 
 const args = process.argv.slice(2);
 const opt = (name, dflt) => {
@@ -70,12 +70,7 @@ const parseScript = (s) =>
   });
 
 const launch = async (script) => {
-  const ctx = await chromium.launchPersistentContext(`work/chrome-profile-${port}`, {
-    executablePath: "/usr/bin/google-chrome",
-    headless: !args.includes("--headed"),
-    viewport: { width: 1280, height: 960 },
-    args: ["--autoplay-policy=no-user-gesture-required", "--enable-gpu", "--ignore-gpu-blocklist", "--use-angle=vulkan", "--enable-features=Vulkan", "--enable-unsafe-swiftshader"],
-  });
+  const ctx = await launchBrowser({ ...browserArgs(args), port });
   await ctx.addInitScript(fakePad, parseScript(script));
   const page = ctx.pages()[0] ?? (await ctx.newPage());
   page.on("pageerror", (e) => console.log(`pageerror: ${e.message}`));

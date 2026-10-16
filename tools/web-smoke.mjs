@@ -4,14 +4,10 @@
 //                            [--browser chrome|firefox|webkit] [--angle vulkan|gl|swiftshader] [--headed]
 // Start the dev server for it with: cd web && npx vite --port 5174 (5173 is left for interactive use).
 // Each port is its own origin, so its OPFS install is separate.
-// chrome: the system Chrome; firefox / webkit: Playwright's builds in ~/.cache/ms-playwright
-// (`npx playwright-core install firefox webkit`; WebKit also needs the libraries unpacked into
-// work/tools/webkit-deps/root, see docs/JOURNAL.md). Each browser and port keeps a persistent
-// profile in work/<browser>-profile-<port> (OPFS keeps the installed game between runs).
+// Browsers and profiles: see tools/browsers.mjs.
 // Captured frames go to work/web-frames/.
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { chromium, firefox, webkit } from "playwright-core";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { browserArgs, launch } from "./browsers.mjs";
 
 const args = process.argv.slice(2);
 const opt = (name, dflt) => {
@@ -20,42 +16,12 @@ const opt = (name, dflt) => {
 };
 const seconds = Number(opt("seconds", "120"));
 const query = opt("query", "devIso&autoplay");
-const headed = args.includes("--headed");
 const port = opt("port", "5174");
 const url = `http://localhost:${port}/?${query}`;
 const outDir = "work/web-frames";
 mkdirSync(outDir, { recursive: true });
 
-const browser = opt("browser", "chrome");
-const common = { headless: !headed, viewport: { width: 1280, height: 960 } };
-let ctx;
-if (browser === "chrome") {
-  const angle = opt("angle", "vulkan");
-  ctx = await chromium.launchPersistentContext(`work/chrome-profile-${port}`, {
-    ...common,
-    executablePath: "/usr/bin/google-chrome",
-    args: [
-      "--autoplay-policy=no-user-gesture-required",
-      "--enable-gpu",
-      "--ignore-gpu-blocklist",
-      `--use-angle=${angle}`,
-      ...(angle === "vulkan" ? ["--enable-features=Vulkan"] : []),
-      "--enable-unsafe-swiftshader",
-    ],
-  });
-} else if (browser === "firefox") {
-  ctx = await firefox.launchPersistentContext(`work/firefox-profile-${port}`, {
-    ...common,
-    firefoxUserPrefs: { "media.autoplay.default": 0, "webgl.force-enabled": true },
-  });
-} else if (browser === "webkit") {
-  const deps = resolve("work/tools/webkit-deps/root/usr/lib/x86_64-linux-gnu");
-  const env = { ...process.env };
-  if (existsSync(deps)) env.LD_LIBRARY_PATH = [deps, process.env.LD_LIBRARY_PATH].filter(Boolean).join(":");
-  ctx = await webkit.launchPersistentContext(`work/webkit-profile-${port}`, { ...common, env });
-} else {
-  throw new Error(`unknown --browser ${browser}`);
-}
+const ctx = await launch({ ...browserArgs(args), port });
 const page = ctx.pages()[0] ?? (await ctx.newPage());
 const t0 = Date.now();
 const stamp = () => ((Date.now() - t0) / 1000).toFixed(1).padStart(6);

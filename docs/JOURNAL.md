@@ -244,3 +244,18 @@ decisions and gotchas — no decompiled code.
   texture was freed (which flushes the FBO cache) and the first StretchRect to a new surface blit
   a framebuffer onto itself (Chrome silently dropped that frame/copy). FBOs are now looked up
   before binding; a StretchRect within one surface goes through a scratch texture.
+
+## 2026-10-16 — Other browsers
+- Playwright Firefox 157 and WebKit 27.2 (WPE MiniBrowser) on Ubuntu 22.04. WebKit needed
+  libavif13, libgstreamer-plugins-bad1.0-0 (non-ESM jammy-updates build), libaom3, libdav1d5,
+  libgav1-0, libyuv0, libabsl20210324: fetched with `apt-get download`, unpacked with `dpkg-deb -x`
+  and copied into `~/.cache/ms-playwright/webkit-2370/minibrowser-wpe/sys/lib` (its wrapper
+  script replaces LD_LIBRARY_PATH). `tools/browsers.mjs` launches chrome/firefox/webkit for all
+  test tools (`--browser`, `--angle vulkan|gl|swiftshader` for Chrome).
+- Results: every check of web-ui-test (saves, fullscreen, pointer lock, Esc substitute, controls
+  list, migration) and web-pad-test (settings, controller-only play to level 1) passes in all
+  three. Gameplay ~37–48 fps; Chrome's ANGLE GL backend 37.5 fps, SwiftShader (no GPU) renders
+  correctly at ~18 fps. Installs: Chrome ~60 s, WebKit 55 s, Firefox 221 s (Firefox OPFS costs
+  ~50–60 ms per file whatever the concurrency; packing the 4,088 files would fix it).
+- WebKit's site quota in this build is 1,000 MB (install ~850 MB); the page now refuses to
+  install with less than 900 MB free and explains why.
