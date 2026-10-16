@@ -703,6 +703,16 @@ void execute(const uint32_t* words, size_t n) {
         readback(t, w, h, fmt, dst, pitch);
         break;
       }
+      case cmd::OpResetState:
+        init_default_state(g.st);
+        g.textures.fill(0);
+        g.streams = {};
+        g.layout.clear();
+        g.vs = g.ps = 0;
+        g.index_buffer = 0;
+        g.index_bits = 16;
+        g.state_dirty = true;
+        break;
       case cmd::OpBackBuffer: {
         uint32_t w = r.u32(), h = r.u32(), vsync = r.u32(), fmt = r.u32();
         ensure_backbuffer(w, h);

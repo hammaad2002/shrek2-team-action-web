@@ -332,8 +332,17 @@ uint32_t Reset(Cpu* c, ComObject* self) {
   return S_OK;
 }
 
+uint32_t TestCooperativeLevel(Cpu*, ComObject* self) {
+  if (!D(self)->lost) return S_OK;
+  return app_active() ? D3DERR_DEVICENOTRESET : D3DERR_DEVICELOST;
+}
+
 uint32_t Present(Cpu*, ComObject* self) {
   Device* d = D(self);
+  if (d->lost) {
+    flush(false);  // still execute resource work; nothing reaches the screen until Reset()
+    return D3DERR_DEVICELOST;
+  }
   rec().op(cmd::OpPresent, {(uint32_t)d->frame});
   d->frame++;
   static auto t_last = std::chrono::steady_clock::now();
@@ -1167,7 +1176,7 @@ rt::ComInterface& iface_device() {
   static rt::ComInterface i(
       "IDirect3DDevice9",
       {{"QueryInterface", 2, QueryInterface}, {"AddRef", 0, com_AddRef}, {"Release", 0, com_Release},
-       {"TestCooperativeLevel", 0, ok}, {"GetAvailableTextureMem", 0, GetAvailableTextureMem}, {"EvictManagedResources", 0, ok},
+       {"TestCooperativeLevel", 0, TestCooperativeLevel}, {"GetAvailableTextureMem", 0, GetAvailableTextureMem}, {"EvictManagedResources", 0, ok},
        {"GetDirect3D", 1, GetDirect3D}, {"GetDeviceCaps", 1, GetDeviceCaps}, {"GetDisplayMode", 2, GetDisplayMode},
        {"GetCreationParameters", 1, GetCreationParameters}, {"SetCursorProperties", 3, ok}, {"SetCursorPosition", 3, ok},
        {"ShowCursor", 1, ShowCursor}, {"CreateAdditionalSwapChain", 2, nullptr}, {"GetSwapChain", 2, GetSwapChain},

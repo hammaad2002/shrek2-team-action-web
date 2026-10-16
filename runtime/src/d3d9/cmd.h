@@ -54,6 +54,7 @@ enum Op : uint32_t {
   OpSetGammaRamp,      // 3*256 words
   OpReadback,          // kind/id/face/level, w, h, format, dest guest addr, pitch  (sync point)
   OpBackBuffer,        // w, h, vsync, format
+  OpResetState,        // (none) Device::Reset: back to default state, nothing bound
 };
 
 // Append-only buffer of 32-bit words.

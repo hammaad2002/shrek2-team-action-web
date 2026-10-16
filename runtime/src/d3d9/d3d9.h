@@ -47,6 +47,7 @@ enum Pool : uint32_t { POOL_DEFAULT = 0, POOL_MANAGED = 1, POOL_SYSTEMMEM = 2, P
 enum Usage : uint32_t { USAGE_RENDERTARGET = 1, USAGE_DEPTHSTENCIL = 2, USAGE_WRITEONLY = 8, USAGE_DYNAMIC = 0x200, USAGE_AUTOGENMIPMAP = 0x400 };
 enum ResType : uint32_t { RTYPE_SURFACE = 1, RTYPE_VOLUME = 2, RTYPE_TEXTURE = 3, RTYPE_VOLUMETEXTURE = 4, RTYPE_CUBETEXTURE = 5, RTYPE_VERTEXBUFFER = 6, RTYPE_INDEXBUFFER = 7 };
 
+constexpr uint32_t D3DERR_DEVICENOTRESET = 0x88760869;
 constexpr uint32_t D3DERR_INVALIDCALL = 0x8876086c, D3DERR_NOTAVAILABLE = 0x8876086a, D3DERR_DEVICELOST = 0x88760868,
                    D3DERR_OUTOFVIDEOMEMORY = 0x8876017c, D3DERR_NOTFOUND = 0x88760866;
 
@@ -242,6 +243,9 @@ class Device : public ComObject {
   Surface* auto_depth = nullptr;
   StateBlock* recording = nullptr;
   bool in_scene = false;
+  // D3D9 device loss: a fullscreen device is lost while the application is inactive and must be
+  // Reset() once it is active again (the game's own recovery code waits for DEVICENOTRESET).
+  bool lost = false;
   uint64_t frame = 0;
   uint32_t gamma[3 * 256] = {};
   // Statistics for the current frame.
@@ -257,6 +261,10 @@ class StateBlock : public ComObject {
   bool recorded = false;      // from Begin/EndStateBlock (applies the whole snapshot either way)
   ~StateBlock() override;
 };
+
+// Application activation (from window focus changes): drives device loss for fullscreen devices.
+void set_app_active(bool active);
+bool app_active();
 
 // D3D reference counting: texture levels share their container's count; zero deletes.
 void add_ref(ComObject* o);

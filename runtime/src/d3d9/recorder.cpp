@@ -1,5 +1,6 @@
 #include "recorder.h"
 
+#include <atomic>
 #include <mutex>
 #include <thread>
 
@@ -22,9 +23,42 @@ std::recursive_mutex& api_lock() {
 }
 
 cmd::Stream& rec() { return g_stream; }
+
+namespace {
+Device* g_device = nullptr;
+std::atomic<bool> g_app_active{true};
+}  // namespace
+
+void set_app_active(bool active) {
+  std::lock_guard<std::recursive_mutex> lock(api_lock());
+  g_app_active = active;
+  if (!active && g_device && g_device->pp[8] == 0) {  // pp[8] = Windowed
+    if (!g_device->lost) rt::log(rt::Log::Info, "D3D: application deactivated, fullscreen device lost");
+    g_device->lost = true;
+  }
+}
+
+bool app_active() { return g_app_active; }
 uint32_t new_resource_id() { return g_next_id++; }
 
 void recorder_create_device(Device* dev) {
+  g_device = dev;
+  dev->lost = false;
+  // Reset() unbinds everything and returns to the default state (first creation: no-op).
+  for (auto& t : dev->st.textures) {
+    release_ref(t);
+    t = nullptr;
+  }
+  for (auto& s : dev->st.streams) {
+    release_ref(s.vb);
+    s = {};
+  }
+  release_ref(dev->st.indices);
+  dev->st.indices = nullptr;
+  dev->st.vs = dev->st.ps = nullptr;
+  dev->st.decl = nullptr;
+  dev->st.fvf = 0;
+  g_stream.op(cmd::OpResetState, {});
   init_default_state(dev->st);
   dev->st.rs[7] = dev->pp[9] ? 1 : 0;  // ZENABLE follows EnableAutoDepthStencil
   dev->st.viewport = Viewport{0, 0, dev->pp[0], dev->pp[1], 0.0f, 1.0f};

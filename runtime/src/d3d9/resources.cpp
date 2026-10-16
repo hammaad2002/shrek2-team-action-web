@@ -443,6 +443,10 @@ uint32_t q_GetData(Cpu* c, ComObject* self) {
 uint32_t sc_Present(Cpu* c, ComObject* self) {
   (void)c;
   Device* d = as<SwapChain>(self)->device;
+  if (d->lost) {
+    flush(false);
+    return D3DERR_DEVICELOST;
+  }
   rec().op(cmd::OpPresent, {(uint32_t)d->frame});
   d->frame++;
   flush(true);

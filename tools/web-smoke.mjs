@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Headless browser smoke test for the web build (local development only).
-//   node tools/web-smoke.mjs [--seconds 120] [--query "devIso&autoplay&capture=300,600"] [--headed]
+//   node tools/web-smoke.mjs [--seconds 120] [--query "devIso&autoplay&capture=300,600"] [--port 5174] [--headed]
+// Start the dev server for it with: cd web && npx vite --port 5174 (5173 is left for interactive use).
+// Each port is its own origin, so its OPFS install is separate.
 // Uses the system Chrome with a throwaway-but-persistent profile in work/chrome-profile (OPFS
 // keeps the installed game between runs). Captured frames go to work/web-frames/.
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -14,11 +16,12 @@ const opt = (name, dflt) => {
 const seconds = Number(opt("seconds", "120"));
 const query = opt("query", "devIso&autoplay");
 const headed = args.includes("--headed");
-const url = `http://localhost:5173/?${query}`;
+const port = opt("port", "5174");
+const url = `http://localhost:${port}/?${query}`;
 const outDir = "work/web-frames";
 mkdirSync(outDir, { recursive: true });
 
-const ctx = await chromium.launchPersistentContext("work/chrome-profile", {
+const ctx = await chromium.launchPersistentContext(`work/chrome-profile-${port}`, {
   executablePath: "/usr/bin/google-chrome",
   headless: !headed,
   viewport: { width: 1280, height: 960 },
@@ -49,6 +52,12 @@ const gl = await page.evaluate(() => {
 });
 console.log(`${stamp()} WebGL2 renderer: ${gl}`);
 
+// --blur-at / --focus-at <seconds after the game starts running>: simulate the window losing and
+// regaining focus (as when clicking another application).
+const blurAt = Number(opt("blur-at", "-1"));
+const focusAt = Number(opt("focus-at", "-1"));
+let runningSince = 0;
+let blurred = false, focused = false;
 let lastState = "";
 let lastStatus = "";
 let lastFrames = -1;
@@ -60,6 +69,18 @@ while (Date.now() < deadline) {
     const d = window.__shrek2;
     return { state: d.state, frames: d.frames, status: document.getElementById("status").textContent, logLen: d.log.length, caps: Object.keys(d.captures) };
   });
+  if (s.state === "running" && !runningSince) runningSince = Date.now();
+  const ranFor = runningSince ? (Date.now() - runningSince) / 1000 : -1;
+  if (blurAt >= 0 && !blurred && ranFor >= blurAt) {
+    blurred = true;
+    await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    console.log(`${stamp()} >>> window blur (frames ${s.frames})`);
+  }
+  if (focusAt >= 0 && !focused && ranFor >= focusAt) {
+    focused = true;
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    console.log(`${stamp()} >>> window focus (frames ${s.frames})`);
+  }
   if (s.state !== lastState || (s.state !== "running" && s.status !== lastStatus)) console.log(`${stamp()} state: ${s.state} (${s.status})`);
   lastStatus = s.status;
   if (s.frames !== lastFrames && s.state === "running") console.log(`${stamp()} frames presented: ${s.frames}`);

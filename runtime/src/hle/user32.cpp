@@ -10,6 +10,10 @@
 
 using namespace rt;
 
+namespace d3d {
+void set_app_active(bool active);  // d3d9/recorder.cpp: device loss on deactivation
+}
+
 namespace {
 const char* kDll = "user32.dll";
 
@@ -88,10 +92,12 @@ void pump() {
         post(WM_MOUSEWHEEL, (uint32_t)(e.dy * 120) << 16, 0);
         break;
       case plat::InputEvent::FocusGained:
+        d3d::set_app_active(true);
         post(WM_ACTIVATEAPP, 1, 0);
         post(WM_ACTIVATE, 1, 0);
         break;
       case plat::InputEvent::FocusLost:
+        d3d::set_app_active(false);
         post(WM_ACTIVATE, 0, 0);
         post(WM_ACTIVATEAPP, 0, 0);
         break;
