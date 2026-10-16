@@ -575,11 +575,16 @@ HLE_STDCALL_AS("binkw32.dll", BinkPause, "_BinkPause@8", 2) {
   return p ? 1 : 0;
 }
 
-// Volume: 32768 is unity gain (up to 65536).
+// Volume: 32768 is unity. The real DLL's DirectSound output sets log10(v / 32767) * 3333.33
+// hundredths of a dB (floored at -100 dB, capped at 0 dB by DirectSound), i.e. an amplitude of
+// (v / 32767)^1.667. The game fades music in from 0 and then holds it at 32768.
 HLE_STDCALL_AS("binkw32.dll", BinkSetVolume, "_BinkSetVolume@12", 3) {
   std::lock_guard<std::mutex> lock(g_mutex);
   Bink* b = get(arg(c, 0));
-  if (b && b->audio) b->audio->gain = (float)std::min<uint32_t>(arg(c, 2), 65536) / 32768.0f;
+  uint32_t v = arg(c, 2);
+  float gain = v ? std::clamp((float)std::pow(v / 32767.0, 3333.333 / 2000.0), 1e-5f, 1.0f) : 0.0f;
+  if (b && b->audio) b->audio->gain = gain;
+  if (trace_enabled("bink")) log(Log::Info, "BinkSetVolume(%08x, track %u, %u)", arg(c, 0), arg(c, 1), arg(c, 2));
   return 0;
 }
 

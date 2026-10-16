@@ -213,3 +213,11 @@ decisions and gotchas — no decompiled code.
   settings capture/revert and a controller-only run to gameplay); keyboard W/A/S/D and mouse
   camera in the browser. The page's dev `keys=` holds never worked from a URL (`+` decodes as a
   space) — fixed.
+
+## 2026-10-16 — Music volume
+- Traced BinkSetVolume through intros, menus and level 1: music (Game/Music/*.bik, 4×4 audio
+  carriers) fades in from 0 over ~1,000 calls and then holds at 32768 (unity). The real
+  binkw32.dll (0x4d01679d) sets DirectSound volume log10(v/32767)·3333.33 hundredths of a dB,
+  floored at −10000 — so steady music already matched, and the linear HLE only differed during
+  fades and at lower in-game volume settings. The HLE now uses the same curve
+  (amplitude (v/32767)^1.667, capped at unity as DirectSound rejects positive values).
