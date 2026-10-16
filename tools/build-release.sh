@@ -23,7 +23,8 @@ echo "ok"
 
 echo "== shared bytes with the game"
 node "$ROOT/tools/scan-dist.mjs" "$DIST" "$ROOT/work/install" "$ROOT/work/iso" \
-  --allow "$ROOT/work/tools/ffmpeg-web/lib/libavcodec.a" --allow "$ROOT/node_modules/iced-x86/iced_x86_bg.wasm"
+  --allow "$ROOT/work/tools/ffmpeg-web/lib/libavcodec.a" --allow "$ROOT/node_modules/iced-x86/iced_x86_bg.wasm" \
+  --allow "$ROOT/tools/scan-allow/mit-license.txt"
 
 echo "== um publish check (site)"
 "$UM" publish check "$DIST" --game "$ROOT/work/install/Game"
