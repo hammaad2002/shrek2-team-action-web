@@ -9,10 +9,14 @@
  */
 import { INSTALL_DIR, cacheName, sha256 } from "./cache.ts";
 import { canLockEscape, enterFullscreen, exitFullscreen, isFullscreen, watchFullscreen } from "./fullscreen.ts";
+import { Gamepads } from "./gamepads.ts";
 import { Input } from "./input.ts";
 import { KEYS } from "./keys.ts";
 import { loadPrefs } from "./prefs.ts";
+import { loadRegistry, saveRegistry } from "./registry.ts";
 import { applyImport, exportSaves, listSaves, planImport, type ImportPlan } from "./saves.ts";
+import { SettingsPanel } from "./settings-ui.ts";
+import { defaultSettings, hasSettings, keyLabel, readSettings, writeSettings, type GameSettings } from "./settings.ts";
 
 const params = new URLSearchParams(location.search);
 // The player engine contains no game code: the game is translated in this browser. `devEngine`
@@ -21,6 +25,8 @@ const DEV_ENGINE = params.has("devEngine");
 const ENGINE_URL = DEV_ENGINE ? "/dev-engine/shrek2.js" : "/engine/shrek2_player.js";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const prefs = loadPrefs();
+const pads = new Gamepads();
 const status = $("status");
 const progress = $<HTMLProgressElement>("progress");
 const logEl = $("log");
@@ -178,6 +184,8 @@ interface Engine {
   _web_mouse_button(button: number, down: number, x: number, y: number): void;
   _web_mouse_wheel(dy: number): void;
   _web_focus(focused: number): void;
+  _web_gamepad(slot: number, connected: number, buttons: number, lx: number, ly: number, rx: number, ry: number, lt: number, rt: number): void;
+  _web_gamepad_rumble(): number;
   stringToNewUTF8(s: string): number;
   _malloc(n: number): number;
   _web_game_alloc(n: number): number;
@@ -191,9 +199,22 @@ async function resetSaves() {
   for await (const name of (save as unknown as { keys(): AsyncIterable<string> }).keys()) await save.removeEntry(name);
 }
 
+/**
+ * The game's settings, writing the Launcher's defaults on first start (the game reads missing
+ * values as 0xFFFFFFFF) and rewriting all values so the controller GUIDs are always present.
+ */
+async function prepareSettings(): Promise<GameSettings> {
+  const r = await loadRegistry();
+  const s = hasSettings(r) ? readSettings(r) : defaultSettings();
+  writeSettings(s, r);
+  await saveRegistry(r);
+  return s;
+}
+
 async function play() {
   setState("starting", "Starting…");
   if (params.has("resetSave")) await resetSaves();
+  const settings = await prepareSettings();
   let game: Uint8Array | null = null;
   if (!DEV_ENGINE) {
     game = await cachedTranslation();
@@ -262,8 +283,7 @@ async function play() {
     engine._web_game_register(fptr, funcs.length);
   }
 
-  const prefs = loadPrefs();
-  const input = new Input(engine, canvas, { pauseAlias: prefs.pauseAlias, mouseCapture: true });
+  const input = new Input(engine, canvas, { pauseAlias: prefs.pauseAlias, mouseCapture: settings.mouseEnabled });
   attachHud(input);
 
   // Scripted keys for automated tests: frame:Code[+hold]
@@ -272,12 +292,14 @@ async function play() {
     .filter(Boolean)
     .map((s) => {
       const [f, rest] = s.split(":");
-      const [code, hold] = rest.split("+");
+      // `+` arrives as a space when the URL does not escape it.
+      const [code, hold] = rest.split(/[+ ]/);
       return { frame: Number(f), code, hold: Number(hold ?? 4), down: false, up: false };
     });
   const captures = new Set((params.get("capture") ?? "").split(",").filter(Boolean).map(Number));
 
   const tick = () => {
+    pads.feed(engine);
     if (engine._web_render_tick()) {
       dev.frames++;
       if (captures.has(dev.frames)) dev.captures[dev.frames] = canvas.toDataURL("image/png");
@@ -307,7 +329,8 @@ function attachHud(input: Input) {
   const hud = $("hud");
   const hint = $("hint");
   const button = $<HTMLButtonElement>("fullscreen");
-  const alias = input.options.pauseAlias === "Backquote" ? "` (left of 1)" : input.options.pauseAlias;
+  const code = input.options.pauseAlias;
+  const alias = code === "Backquote" ? "` (left of 1)" : keyLabel(code);
   let timer = 0;
   const show = (ms: number) => {
     hud.classList.add("show");
@@ -320,7 +343,7 @@ function attachHud(input: Input) {
     const tips = [];
     if (input.options.mouseCapture && !input.pointerLocked) tips.push("Click the game to steer the camera with the mouse.");
     if (fs && canLockEscape) tips.push("Hold Esc to leave fullscreen.");
-    else if (fs || input.pointerLocked) tips.push(`Esc is taken by the browser here: press ${alias} for the game's Esc.`);
+    else if ((fs || input.pointerLocked) && code) tips.push(`Esc is taken by the browser here: press ${alias} for the game's Esc.`);
     hint.textContent = tips.join(" ");
   };
   button.addEventListener("click", () => {
@@ -350,7 +373,7 @@ function attachHud(input: Input) {
 const saveStatus = () => $("save-status");
 
 async function refreshSaves() {
-  const saves = await listSaves();
+  const saves = await listSaves().catch(() => []);
   $<HTMLButtonElement>("save-export").disabled = saves.length === 0;
   if (!saveStatus().dataset.sticky) {
     saveStatus().textContent = saves.length
@@ -492,6 +515,8 @@ async function main() {
   });
   $("play").addEventListener("click", () => void play().catch(fail));
   $("reinstall").addEventListener("click", askInstall);
+  const settingsPanel = new SettingsPanel(prefs, pads);
+  $("settings").addEventListener("click", () => void settingsPanel.open().catch(fail));
   attachSaves();
 
   if (await installed()) showPlay();

@@ -26,6 +26,8 @@ uint8_t g_keys[256];
 MouseState g_mouse{};
 std::atomic<int> g_canvas_w{640}, g_canvas_h{480};
 std::atomic<bool> g_window{false};
+GamepadState g_pads[kMaxGamepads];
+float g_rumble[kMaxGamepads * 2];  // strong, weak per slot; read by the page every frame
 
 uint8_t dik_index(uint32_t dik) { return (uint8_t)((dik & 0x100) ? 0x80 | (dik & 0x7f) : dik); }
 
@@ -70,6 +72,17 @@ void poll_events(std::vector<InputEvent>& out) {
 }
 
 const uint8_t* keyboard_state() { return g_keys; }
+
+GamepadState gamepad_state(int slot) {
+  std::lock_guard<std::mutex> lock(g_input_mutex);
+  return slot >= 0 && slot < kMaxGamepads ? g_pads[slot] : GamepadState{};
+}
+
+void gamepad_rumble(int slot, float strong, float weak) {
+  if (slot < 0 || slot >= kMaxGamepads) return;
+  g_rumble[2 * slot] = strong;
+  g_rumble[2 * slot + 1] = weak;
+}
 
 MouseState take_mouse_state() {
   std::lock_guard<std::mutex> lock(g_input_mutex);
@@ -214,6 +227,21 @@ EMSCRIPTEN_KEEPALIVE void web_mouse_wheel(int dy) {
   e.dy = dy;
   push(e);
 }
+
+// The page polls navigator.getGamepads() once per animation frame and reports each player slot.
+EMSCRIPTEN_KEEPALIVE void web_gamepad(int slot, int connected, uint32_t buttons, float lx, float ly, float rx, float ry, float lt,
+                                      float rt) {
+  using namespace plat;
+  if (slot < 0 || slot >= kMaxGamepads) return;
+  std::lock_guard<std::mutex> lock(g_input_mutex);
+  GamepadState& p = g_pads[slot];
+  p.connected = connected != 0;
+  p.buttons = buttons;
+  p.lx = lx, p.ly = ly, p.rx = rx, p.ry = ry, p.lt = lt, p.rt = rt;
+}
+
+// Address of the rumble requests (float strong, weak per slot) for the page to play.
+EMSCRIPTEN_KEEPALIVE float* web_gamepad_rumble() { return plat::g_rumble; }
 
 EMSCRIPTEN_KEEPALIVE void web_focus(int focused) {
   using namespace plat;

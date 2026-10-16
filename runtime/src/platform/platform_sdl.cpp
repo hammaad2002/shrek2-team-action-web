@@ -1,7 +1,8 @@
 // Native platform layer on SDL2: window, keyboard/mouse input (as Windows VK codes and
-// DirectInput/PC set-1 scan codes).
+// DirectInput/PC set-1 scan codes) and gamepads (SDL GameController, or scripted for tests).
 #include <SDL2/SDL.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
@@ -162,14 +163,47 @@ void show_cursor(bool visible) { SDL_ShowCursor(visible ? SDL_ENABLE : SDL_DISAB
 
 namespace {
 void scripted_events(std::vector<InputEvent>& out);
+void scripted_pads();
+
+// Controllers fill player slots in the order they are connected.
+SDL_GameController* g_controllers[kMaxGamepads] = {};
+
+void controller_added(int device_index) {
+  for (auto& c : g_controllers)
+    if (c && SDL_JoystickGetDeviceInstanceID(device_index) == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(c))) return;
+  for (int slot = 0; slot < kMaxGamepads; slot++) {
+    if (g_controllers[slot]) continue;
+    g_controllers[slot] = SDL_GameControllerOpen(device_index);
+    if (g_controllers[slot]) rt::log(rt::Log::Info, "gamepad: %s is player %d", SDL_GameControllerName(g_controllers[slot]), slot + 1);
+    return;
+  }
 }
+
+void controller_removed(SDL_JoystickID id) {
+  for (int slot = 0; slot < kMaxGamepads; slot++) {
+    SDL_GameController* c = g_controllers[slot];
+    if (c && SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(c)) == id) {
+      rt::log(rt::Log::Info, "gamepad: player %d's controller disconnected", slot + 1);
+      SDL_GameControllerClose(c);
+      g_controllers[slot] = nullptr;
+    }
+  }
+}
+}  // namespace
 
 void poll_events(std::vector<InputEvent>& out) {
   scripted_events(out);
+  scripted_pads();
   SDL_Event e;
   while (SDL_PollEvent(&e)) {
     InputEvent ev{};
     switch (e.type) {
+      case SDL_CONTROLLERDEVICEADDED:
+        controller_added(e.cdevice.which);
+        break;
+      case SDL_CONTROLLERDEVICEREMOVED:
+        controller_removed(e.cdevice.which);
+        break;
       case SDL_QUIT:
         ev.kind = InputEvent::Quit;
         out.push_back(ev);
@@ -303,9 +337,150 @@ void scripted_events(std::vector<InputEvent>& out) {
     }
   }
 }
+
+// SHREK2_PAD="600:p0.ly=-1+90,700:p0.a,..." drives virtual gamepads by presented frame:
+// pN.<button>[+hold] presses a button (a b x y lb rb lt rt back start ls rs up down left right),
+// pN.<axis>=v[+hold] holds a stick axis (lx ly rx ry, -1..1, +y down) or trigger (lt rt, 0..1),
+// pN.connect / pN.disconnect plug the pad in or out. A pad named in the script starts connected.
+struct ScriptedPad {
+  uint64_t frame;
+  int slot;
+  std::string control;
+  float value;
+  uint32_t hold;
+  bool started = false, ended = false;
+};
+std::vector<ScriptedPad> g_pad_script;
+GamepadState g_scripted[kMaxGamepads];
+bool g_pad_scripted[kMaxGamepads] = {};
+bool g_pad_script_parsed = false;
+
+uint32_t pad_button(const std::string& n) {
+  static const std::pair<const char*, uint32_t> names[] = {
+      {"a", PadA}, {"b", PadB}, {"x", PadX}, {"y", PadY}, {"lb", PadLB}, {"rb", PadRB}, {"back", PadBack},
+      {"start", PadStart}, {"ls", PadLS}, {"rs", PadRS}, {"up", PadUp}, {"down", PadDown}, {"left", PadLeft},
+      {"right", PadRight}};
+  for (auto& [name, bit] : names)
+    if (n == name) return bit;
+  return 0;
+}
+
+float* pad_axis(GamepadState& p, const std::string& n) {
+  if (n == "lx") return &p.lx;
+  if (n == "ly") return &p.ly;
+  if (n == "rx") return &p.rx;
+  if (n == "ry") return &p.ry;
+  if (n == "lt") return &p.lt;
+  if (n == "rt") return &p.rt;
+  return nullptr;
+}
+
+void parse_pad_script() {
+  g_pad_script_parsed = true;
+  const char* e = getenv("SHREK2_PAD");
+  if (!e) return;
+  std::string s = e;
+  size_t pos = 0;
+  while (pos < s.size()) {
+    size_t end = s.find(',', pos);
+    std::string item = s.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+    pos = end == std::string::npos ? s.size() : end + 1;
+    ScriptedPad k{};
+    size_t colon = item.find(':'), dot = item.find('.');
+    if (colon == std::string::npos || dot == std::string::npos || dot < colon + 3 || item[colon + 1] != 'p') {
+      rt::log(rt::Log::Warn, "SHREK2_PAD: cannot parse '%s'", item.c_str());
+      continue;
+    }
+    k.frame = strtoull(item.c_str(), nullptr, 10);
+    k.slot = atoi(item.c_str() + colon + 2);
+    std::string rest = item.substr(dot + 1);
+    k.hold = 4;
+    k.value = 1;
+    if (size_t plus = rest.find('+'); plus != std::string::npos) {
+      k.hold = (uint32_t)atoi(rest.c_str() + plus + 1);
+      rest = rest.substr(0, plus);
+    }
+    if (size_t eq = rest.find('='); eq != std::string::npos) {
+      k.value = strtof(rest.c_str() + eq + 1, nullptr);
+      rest = rest.substr(0, eq);
+    }
+    k.control = rest;
+    if (k.slot < 0 || k.slot >= kMaxGamepads) continue;
+    GamepadState probe;
+    if (!pad_button(rest) && !pad_axis(probe, rest) && rest != "connect" && rest != "disconnect") {
+      rt::log(rt::Log::Warn, "SHREK2_PAD: unknown control '%s'", rest.c_str());
+      continue;
+    }
+    g_pad_script.push_back(k);
+    g_pad_scripted[k.slot] = true;
+    g_scripted[k.slot].connected = true;
+  }
+}
+
+void scripted_pads() {
+  if (!g_pad_script_parsed) parse_pad_script();
+  uint64_t f = g_frame.load();
+  for (auto& k : g_pad_script) {
+    GamepadState& p = g_scripted[k.slot];
+    if (!k.started && f >= k.frame) {
+      k.started = true;
+      if (k.control == "connect" || k.control == "disconnect") {
+        p = GamepadState{};
+        p.connected = k.control == "connect";
+        k.ended = true;
+      } else if (uint32_t bit = pad_button(k.control)) {
+        p.buttons |= bit;
+      } else {
+        *pad_axis(p, k.control) = k.value;
+      }
+      rt::log(rt::Log::Info, "scripted pad %d: %s=%g at frame %llu", k.slot, k.control.c_str(), k.value, (unsigned long long)f);
+    } else if (k.started && !k.ended && f >= k.frame + k.hold) {
+      k.ended = true;
+      if (uint32_t bit = pad_button(k.control)) p.buttons &= ~bit;
+      else *pad_axis(p, k.control) = 0;
+    }
+  }
+}
 }  // namespace
 
 void frame_presented(uint64_t frame) { g_frame = frame; }
+
+GamepadState gamepad_state(int slot) {
+  GamepadState p;
+  if (slot < 0 || slot >= kMaxGamepads) return p;
+  if (g_pad_scripted[slot]) return g_scripted[slot];
+  SDL_GameController* c = g_controllers[slot];
+  if (!c || !SDL_GameControllerGetAttached(c)) return p;
+  p.connected = true;
+  static const std::pair<SDL_GameControllerButton, uint32_t> buttons[] = {
+      {SDL_CONTROLLER_BUTTON_A, PadA}, {SDL_CONTROLLER_BUTTON_B, PadB}, {SDL_CONTROLLER_BUTTON_X, PadX},
+      {SDL_CONTROLLER_BUTTON_Y, PadY}, {SDL_CONTROLLER_BUTTON_LEFTSHOULDER, PadLB},
+      {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, PadRB}, {SDL_CONTROLLER_BUTTON_BACK, PadBack},
+      {SDL_CONTROLLER_BUTTON_START, PadStart}, {SDL_CONTROLLER_BUTTON_LEFTSTICK, PadLS},
+      {SDL_CONTROLLER_BUTTON_RIGHTSTICK, PadRS}, {SDL_CONTROLLER_BUTTON_DPAD_UP, PadUp},
+      {SDL_CONTROLLER_BUTTON_DPAD_DOWN, PadDown}, {SDL_CONTROLLER_BUTTON_DPAD_LEFT, PadLeft},
+      {SDL_CONTROLLER_BUTTON_DPAD_RIGHT, PadRight}};
+  for (auto& [b, bit] : buttons)
+    if (SDL_GameControllerGetButton(c, b)) p.buttons |= bit;
+  auto axis = [c](SDL_GameControllerAxis a) { return std::max(-1.f, SDL_GameControllerGetAxis(c, a) / 32767.f); };
+  p.lx = axis(SDL_CONTROLLER_AXIS_LEFTX), p.ly = axis(SDL_CONTROLLER_AXIS_LEFTY);
+  p.rx = axis(SDL_CONTROLLER_AXIS_RIGHTX), p.ry = axis(SDL_CONTROLLER_AXIS_RIGHTY);
+  p.lt = axis(SDL_CONTROLLER_AXIS_TRIGGERLEFT), p.rt = axis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
+  if (p.lt > 0.5f) p.buttons |= PadLT;
+  if (p.rt > 0.5f) p.buttons |= PadRT;
+  return p;
+}
+
+void gamepad_rumble(int slot, float strong, float weak) {
+  if (slot < 0 || slot >= kMaxGamepads) return;
+  if (g_pad_scripted[slot]) {
+    rt::log(rt::Log::Info, "scripted pad %d: rumble strong=%.3f weak=%.3f", slot, strong, weak);
+    return;
+  }
+  // The game keeps an effect playing until it stops it; SDL needs a duration.
+  if (SDL_GameController* c = g_controllers[slot])
+    SDL_GameControllerRumble(c, (Uint16)(std::clamp(strong, 0.f, 1.f) * 65535), (Uint16)(std::clamp(weak, 0.f, 1.f) * 65535), 10000);
+}
 
 MouseState take_mouse_state() {
   std::lock_guard<std::mutex> lock(g_mouse_mutex);

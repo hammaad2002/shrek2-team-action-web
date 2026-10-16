@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Shrek 2 Team Action — in your browser</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%239ccc3c'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-size='15' font-weight='700' text-anchor='middle' fill='%2311160f'%3ES2%3C/text%3E%3C/svg%3E" />
     <style>
       :root {
         --bg: #11160f;
@@ -31,6 +32,24 @@
       .note { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
       #save-confirm { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
       #save-confirm p { margin: 0 0 10px; color: var(--ink); }
+      h3 { font-size: 15px; margin: 20px 0 6px; color: var(--accent); }
+      .spread { justify-content: space-between; }
+      #settings-panel label { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+      #settings-panel select, #settings-panel input[type="range"] { font: inherit; }
+      #settings-panel select { background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+      button.tab { background: transparent; color: var(--muted); border: 1px solid var(--line); padding: 6px 12px; }
+      button.tab.on { background: var(--accent); color: #11160f; border-color: var(--accent); }
+      #settings-panel h2 { margin: 0; }
+      #settings-panel input { accent-color: var(--accent); }
+      #set-bindings { width: 100%; border-collapse: collapse; margin-top: 8px; table-layout: fixed; }
+      #set-bindings td { padding: 3px 4px; border-top: 1px solid #2a3424; white-space: nowrap; }
+      #set-bindings td:first-child, #set-bindings th:first-child { width: 30%; white-space: normal; }
+      #set-bindings th { text-align: left; font-weight: 600; color: var(--muted); padding: 4px; }
+      button.binding { background: var(--bg); color: var(--ink); border: 1px solid var(--line); font-weight: 500; padding: 4px 8px; width: calc(100% - 2.2em); max-width: 12em; text-align: left; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+      button.binding.capturing { border-color: var(--accent); color: var(--accent); }
+      button.clear { background: transparent; color: var(--muted); padding: 4px 0; width: 2em; font-weight: 400; vertical-align: middle; }
+      #set-alias { background: var(--bg); color: var(--ink); border: 1px solid var(--line); padding: 4px 12px; min-width: 4em; }
+      #set-alias.capturing { border-color: var(--accent); color: var(--accent); }
       #game { position: fixed; inset: 0; background: #000; display: none; }
       #game.on { display: block; }
       #canvas { width: 100%; height: 100%; display: block; outline: none; }
@@ -57,6 +76,7 @@
       <div class="panel" id="play-panel" hidden>
         <div class="row">
           <button id="play">Play</button>
+          <button id="settings" class="secondary">Settings</button>
           <button id="reinstall" class="secondary">Reinstall from disc image</button>
         </div>
         <h2>Saved games</h2>
@@ -73,6 +93,44 @@
           </div>
         </div>
         <p class="note" id="save-status"></p>
+      </div>
+      <div class="panel" id="settings-panel" hidden>
+        <div class="row spread"><h2>Settings</h2><button id="settings-close">Done</button></div>
+        <p class="note">These are the options of the game's original Launcher. Changes are saved as you make them and apply the next time you press Play.</p>
+        <h3>Display</h3>
+        <label>Screen resolution <select id="set-resolution"></select></label>
+        <label><input type="checkbox" id="set-shadows" /> Detailed shadows</label>
+        <label><input type="checkbox" id="set-clipping" /> Distance clipping (faster on slow computers)</label>
+        <label>Near <input type="range" id="set-distance" min="0" max="100" /> Far</label>
+        <h3>Controls</h3>
+        <div class="row" id="set-players"></div>
+        <p class="note" id="set-pad-status"></p>
+        <table id="set-bindings">
+          <thead><tr><th>Action</th><th>Keyboard</th><th>Controller</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <p class="note">Click a binding, then press a key, or press a controller button or move a stick. A stick moved for one direction also covers the opposite one (Move Up also gives Move Down). × clears a binding.</p>
+        <h3>Mouse</h3>
+        <label><input type="checkbox" id="set-mouse" /> Mouse camera control (click the game to capture the mouse)</label>
+        <label>Sensitivity <input type="range" id="set-sens" min="1" max="100" /></label>
+        <label><input type="checkbox" id="set-wheel" /> Mouse wheel switches character</label>
+        <label>Left button <select id="set-mouse-0"></select></label>
+        <label>Right button <select id="set-mouse-1"></select></label>
+        <label>Middle button <select id="set-mouse-2"></select></label>
+        <h3>Browser</h3>
+        <label>Substitute Esc key <button id="set-alias"></button></label>
+        <p class="note">Browsers keep Esc for leaving fullscreen and releasing the mouse (Chrome and Edge let the game have it in fullscreen). This key works as Esc in the game everywhere.</p>
+        <div class="row" style="margin-top: 16px">
+          <button id="set-revert" class="secondary">Revert to defaults</button>
+          <span class="note" id="set-status"></span>
+        </div>
+        <div id="set-revert-confirm" hidden style="margin-top: 12px">
+          <p>Restore the default settings and controls for all players?</p>
+          <div class="row">
+            <button id="set-revert-yes">Revert</button>
+            <button id="set-revert-no" class="secondary">Cancel</button>
+          </div>
+        </div>
       </div>
       <div id="log"></div>
     </div>

@@ -26,8 +26,12 @@ export async function listSaves(): Promise<{ name: string; data: Uint8Array<Arra
   const out: { name: string; data: Uint8Array<ArrayBuffer>; date: Date }[] = [];
   for await (const [name, handle] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()) {
     if (handle.kind !== "file" || !SAVE_NAME.test(name)) continue;
-    const f = await (handle as FileSystemFileHandle).getFile();
-    out.push({ name: name.toLowerCase(), data: new Uint8Array(await f.arrayBuffer()), date: new Date(f.lastModified) });
+    try {
+      const f = await (handle as FileSystemFileHandle).getFile();
+      out.push({ name: name.toLowerCase(), data: new Uint8Array(await f.arrayBuffer()), date: new Date(f.lastModified) });
+    } catch {
+      // Removed while listing.
+    }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }

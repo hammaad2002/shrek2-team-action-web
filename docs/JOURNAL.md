@@ -179,3 +179,37 @@ decisions and gotchas — no decompiled code.
 - New trace channel `input` (window-message pump). `tools/web-ui-test.mjs` checks all of the
   above in headless Chrome (backup ZIP verified independently with Python's zipfile; the game
   opens the restored saves).
+
+## 2026-10-16 — Gamepads (4 players) and the settings screen
+- How the game reads pads: input setup (0x592140/0x591ee0) enumerates DirectInput devices once
+  and opens a gamepad only if its instance GUID equals a player's `pad<N>` registry string
+  (parsed by 0x5935d0 as upper-case `XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`). Per player, three
+  binding slots per action (keyboard, pad, mouse); pad codes: 1/2/3 lX/lY/lZ, 4/5 POV, 6/7/8
+  lRx/lRy/lRz, 11+n button n; axis values ×(−0.001). 0x594320 turns the bindings into an original
+  Xbox XINPUT_STATE: each stick axis comes from an action pair (Move Up/Down, Left/Right, Zoom
+  In/Out, Cam Left/Right) as the larger of `v(first)·±32767`; a stick bound to the pair's first
+  action covers both directions, bound to the second it is inverted (the Launcher's "Invert").
+  The loader skips a pad binding already used by the player, so the Launcher's defaults bind the
+  stick to both actions harmlessly. Pads 1–2 get a constant-force effect for rumble (0x5918f0):
+  motor speeds arrive as the cartesian direction scaled by the axes' dwFFForceResolution.
+  Controller insert/remove is tracked Xbox-style from per-pad Poll/GetDeviceState success.
+- Runtime: four virtual pads always enumerated ({53324750-4144-0001-8000-00000000000N}); unplugged
+  (Poll → DIERR_INPUTLOST, Acquire → DIERR_UNPLUGGED) while no controller feeds the slot. Axes
+  X,Y (FF), Z (LT−RT), Rx, Ry with per-axis DIPROP_RANGE, radial dead zone 0.2; buttons A B X Y
+  LB RB Back Start LS RS LT RT; the D-pad is the POV hat and also drives the left stick (menus
+  and movement only read sticks). IDirectInputEffect forwards rumble to `plat::gamepad_rumble`.
+  Web: the page reports `navigator.getGamepads()` per frame (`web_gamepad`) and plays rumble via
+  `vibrationActuator`; native: SDL GameController, plus `SHREK2_PAD="frame:pN.ctl[=v][+hold]"`.
+- Settings (Launcher.exe 0x404c00/0x405541 and its dialog resources): `resolution` 0–3 (default
+  2 = 1024×768); `options` bits — the game uses only 0x2 detailed shadows, 0x20 anti-aliasing
+  (2× MSAA request), 0x100 distance clipping (+ `distance` 0–100); `mouseenable`, `mousesens`
+  (×0.01), `mousewheel`, `mousebindL/R/M` (action IDs); Launcher defaults options 0x22, sens 100,
+  buttons Attack/Jump/Use, keys W S A D ↑ ↓ ← → Space F Enter LShift Esc Num1 Num2 Tab (the
+  manual's controls). Missing values read as 0xFFFFFFFF (mouse sensitivity −0.01, 640×480), so
+  the page writes the defaults before the first start. The settings panel edits all of this
+  per player with capture-to-bind for keys and controller inputs.
+- Verified: native scripted pad (menus with A, walk with the stick, camera, D-pad, player 2 joins
+  with Start, pause); headless Chrome with a simulated controller (`tools/web-pad-test.mjs`:
+  settings capture/revert and a controller-only run to gameplay); keyboard W/A/S/D and mouse
+  camera in the browser. The page's dev `keys=` holds never worked from a URL (`+` decodes as a
+  space) — fixed.
