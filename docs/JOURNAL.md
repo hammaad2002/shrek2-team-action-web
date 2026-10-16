@@ -161,3 +161,21 @@ decisions and gotchas — no decompiled code.
   inactive, DEVICENOTRESET when active; Present returns DEVICELOST) and Reset() now unbinds
   resources and resets the executor's state (OpResetState). Verified with simulated blur/focus in
   headless Chrome during the intro and during gameplay.
+
+## 2026-10-16 — Save backup, fullscreen and mouse capture
+- Saves (`web/src/saves.ts`, `zip.ts`, `opfs-write.ts`): the play panel backs up Game/Save
+  (save.bin, save.bin_2, save.bin_3; 512 B each) as one stored ZIP, and restores from a backup
+  ZIP, any ZIP holding those names in folders (stored or deflated, CRC-checked), or the loose
+  files of a Windows install. Names and sizes are validated first; replacing existing slots needs
+  an inline confirmation; one operation at a time. Writes use `createWritable` or, where the main
+  thread lacks it, a worker with a sync access handle.
+- Game view: a HUD (fullscreen button + hints) appears on mouse movement. Fullscreen uses the
+  Fullscreen API on `#game`; Chromium also takes `navigator.keyboard.lock(["Escape"])` so Esc
+  reaches the game (hold Esc to leave). Elsewhere the pause-key alias (default Backquote, a
+  browser preference in localStorage) is sent as Esc. Clicking the game locks the pointer for the
+  mouse camera; that click is not passed to the game.
+- The game calls ShowCursor(FALSE) once, when it creates its fullscreen device (0x52d560); the
+  web platform now mirrors ShowCursor onto the canvas's CSS cursor.
+- New trace channel `input` (window-message pump). `tools/web-ui-test.mjs` checks all of the
+  above in headless Chrome (backup ZIP verified independently with Python's zipfile; the game
+  opens the restored saves).

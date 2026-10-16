@@ -62,10 +62,13 @@ void post(uint32_t msg, uint32_t wparam, uint32_t lparam) {
 
 // Translate platform input into window messages.
 void pump() {
+  static const bool trace = rt::trace_enabled("input");
   std::vector<plat::InputEvent> evs;
   plat::poll_events(evs);
   for (auto& e : evs) {
     uint32_t keyl = 1u | (e.scancode & 0xff) << 16 | ((e.scancode & 0x100) ? 1u << 24 : 0u);
+    if (trace && e.kind != plat::InputEvent::MouseMove)
+      rt::log(rt::Log::Info, "input: event %d vk=0x%x scan=0x%x ch=%u button=%u", (int)e.kind, e.vk, e.scancode, e.ch, e.button);
     switch (e.kind) {
       case plat::InputEvent::KeyDown:
         post(e.vk == 0x12 ? WM_SYSKEYDOWN : WM_KEYDOWN, e.vk, keyl | (e.repeat ? 1u << 30 : 0u));

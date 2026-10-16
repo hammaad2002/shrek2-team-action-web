@@ -56,7 +56,10 @@ void get_window_size(int* width, int* height) {
   *height = g_canvas_h;
 }
 
-void show_cursor(bool) {}
+// The game hides the cursor when it goes fullscreen; mirror that on the canvas (page thread).
+void show_cursor(bool visible) {
+  MAIN_THREAD_ASYNC_EM_ASM({ if (Module["canvas"]) Module["canvas"].style.cursor = $0 ? "" : "none"; }, visible ? 1 : 0);
+}
 
 void poll_events(std::vector<InputEvent>& out) {
   std::lock_guard<std::mutex> lock(g_input_mutex);

@@ -8,7 +8,11 @@
  * `resetSave` deletes saves first, `env=K=V;...` sets engine environment variables.
  */
 import { INSTALL_DIR, cacheName, sha256 } from "./cache.ts";
+import { canLockEscape, enterFullscreen, exitFullscreen, isFullscreen, watchFullscreen } from "./fullscreen.ts";
+import { Input } from "./input.ts";
 import { KEYS } from "./keys.ts";
+import { loadPrefs } from "./prefs.ts";
+import { applyImport, exportSaves, listSaves, planImport, type ImportPlan } from "./saves.ts";
 
 const params = new URLSearchParams(location.search);
 // The player engine contains no game code: the game is translated in this browser. `devEngine`
@@ -226,7 +230,7 @@ async function play() {
     },
   });
 
-  // Canvas size follows the window (device pixels); the engine letterboxes the 4:3 image.
+  // Canvas size follows its element (device pixels); the engine letterboxes the 4:3 image.
   const resize = () => {
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.max(1, Math.round(canvas.clientWidth * dpr));
@@ -235,6 +239,7 @@ async function play() {
   };
   resize();
   window.addEventListener("resize", resize);
+  new ResizeObserver(resize).observe(canvas);
 
   if (!engine._web_render_init(engine.stringToNewUTF8("#canvas"))) throw new Error("WebGL 2 is not available");
 
@@ -257,7 +262,9 @@ async function play() {
     engine._web_game_register(fptr, funcs.length);
   }
 
-  attachInput(engine, canvas);
+  const prefs = loadPrefs();
+  const input = new Input(engine, canvas, { pauseAlias: prefs.pauseAlias, mouseCapture: true });
+  attachHud(input);
 
   // Scripted keys for automated tests: frame:Code[+hold]
   const script = (params.get("keys") ?? "")
@@ -295,38 +302,152 @@ async function play() {
   engine.callMain([`/opfs/${INSTALL_DIR}`]);
 }
 
-function attachInput(engine: Engine, canvas: HTMLCanvasElement) {
-  const onKey = (down: boolean) => (e: KeyboardEvent) => {
-    const key = KEYS[e.code];
-    if (!key) return;
-    e.preventDefault();
-    if (down && e.repeat) return;
-    engine._web_key(down ? 0 : 1, key[0], key[1], 0);
-    if (down && e.key.length === 1) engine._web_key(2, 0, 0, e.key.charCodeAt(0));
+/** The overlay with the fullscreen button and input hints; shown while the mouse moves. */
+function attachHud(input: Input) {
+  const hud = $("hud");
+  const hint = $("hint");
+  const button = $<HTMLButtonElement>("fullscreen");
+  const alias = input.options.pauseAlias === "Backquote" ? "` (left of 1)" : input.options.pauseAlias;
+  let timer = 0;
+  const show = (ms: number) => {
+    hud.classList.add("show");
+    clearTimeout(timer);
+    timer = window.setTimeout(() => hud.classList.remove("show"), ms);
   };
-  window.addEventListener("keydown", onKey(true));
-  window.addEventListener("keyup", onKey(false));
-  const pos = (e: MouseEvent) => {
-    const r = canvas.getBoundingClientRect();
-    return [Math.round(((e.clientX - r.left) / r.width) * 640), Math.round(((e.clientY - r.top) / r.height) * 480)];
+  const update = () => {
+    const fs = isFullscreen();
+    button.textContent = fs ? "Exit fullscreen" : "Fullscreen";
+    const tips = [];
+    if (input.options.mouseCapture && !input.pointerLocked) tips.push("Click the game to steer the camera with the mouse.");
+    if (fs && canLockEscape) tips.push("Hold Esc to leave fullscreen.");
+    else if (fs || input.pointerLocked) tips.push(`Esc is taken by the browser here: press ${alias} for the game's Esc.`);
+    hint.textContent = tips.join(" ");
   };
-  canvas.addEventListener("mousemove", (e) => {
-    const [x, y] = pos(e);
-    engine._web_mouse_move(x, y, e.movementX, e.movementY);
+  button.addEventListener("click", () => {
+    void (isFullscreen() ? exitFullscreen() : enterFullscreen($("game"))).catch((err: unknown) =>
+      log(`Fullscreen is not available: ${err instanceof Error ? err.message : String(err)}`, true),
+    );
+    $("canvas").focus();
   });
-  const button = (b: number) => (b === 0 ? 0 : b === 2 ? 1 : 2);
-  canvas.addEventListener("mousedown", (e) => {
-    const [x, y] = pos(e);
-    engine._web_mouse_button(button(e.button), 1, x, y);
+  watchFullscreen(() => {
+    update();
+    show(4000);
   });
-  canvas.addEventListener("mouseup", (e) => {
-    const [x, y] = pos(e);
-    engine._web_mouse_button(button(e.button), 0, x, y);
+  document.addEventListener("pointerlockchange", () => {
+    update();
+    if (input.pointerLocked) hud.classList.remove("show");
+    else show(4000);
   });
-  canvas.addEventListener("wheel", (e) => engine._web_mouse_wheel(e.deltaY < 0 ? 1 : -1), { passive: true });
-  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-  window.addEventListener("focus", () => engine._web_focus(1));
-  window.addEventListener("blur", () => engine._web_focus(0));
+  $("game").addEventListener("mousemove", () => {
+    if (!input.pointerLocked) show(2500);
+  });
+  update();
+  show(6000);
+}
+
+// ---- Save backups ------------------------------------------------------------------------------
+
+const saveStatus = () => $("save-status");
+
+async function refreshSaves() {
+  const saves = await listSaves();
+  $<HTMLButtonElement>("save-export").disabled = saves.length === 0;
+  if (!saveStatus().dataset.sticky) {
+    saveStatus().textContent = saves.length
+      ? `${saves.length} save ${saves.length === 1 ? "slot" : "slots"} in this browser, last saved ${saves.reduce((a, b) => (a.date > b.date ? a : b)).date.toLocaleString()}.`
+      : "No saved games in this browser yet.";
+  }
+}
+
+function sayAboutSaves(text: string, error = false) {
+  const el = saveStatus();
+  el.textContent = text;
+  el.dataset.sticky = "1";
+  el.classList.toggle("error", error);
+}
+
+function attachSaves() {
+  let pending: ImportPlan | null = null;
+  const confirmBox = $("save-confirm");
+  const fileInput = $<HTMLInputElement>("save-import");
+  // One backup or restore at a time.
+  const busy = (on: boolean) => {
+    for (const id of ["save-export", "save-import", "save-confirm-yes", "save-confirm-no"]) $<HTMLButtonElement>(id).disabled = on;
+    $("save-import-label").style.opacity = on ? "0.5" : "";
+    if (!on) void refreshSaves();
+  };
+  const apply = async (plan: ImportPlan) => {
+    sayAboutSaves("Restoring…");
+    busy(true);
+    try {
+      await applyImport(plan);
+      sayAboutSaves(`Restored ${plan.files.map((f) => f.name).join(", ")}.`);
+    } finally {
+      busy(false);
+    }
+  };
+  $("save-export").addEventListener("click", async () => {
+    try {
+      const zip = await exportSaves();
+      if (!zip) return sayAboutSaves("There are no saved games to back up yet.");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(zip);
+      a.download = `shrek2-saves-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+      sayAboutSaves(`Downloaded ${a.download}.`);
+    } catch (err) {
+      sayAboutSaves(`Backup failed: ${err instanceof Error ? err.message : String(err)}`, true);
+    }
+  });
+  fileInput.addEventListener("change", async () => {
+    const files = [...(fileInput.files ?? [])];
+    fileInput.value = "";
+    if (!files.length) return;
+    confirmBox.hidden = true;
+    pending = null;
+    sayAboutSaves("Checking the files…");
+    let plan: ImportPlan;
+    busy(true);
+    try {
+      plan = await planImport(files);
+    } catch (err) {
+      sayAboutSaves(`Nothing restored: ${err instanceof Error ? err.message : String(err)}`, true);
+      return;
+    } finally {
+      busy(false);
+    }
+    if (plan.overwrites.length) {
+      pending = plan;
+      $("save-confirm-text").textContent = `This replaces ${plan.overwrites.join(", ")} in this browser. Back up first if you may want them again.`;
+      sayAboutSaves("Waiting for your confirmation.");
+      confirmBox.hidden = false;
+      return;
+    }
+    try {
+      await apply(plan);
+    } catch (err) {
+      sayAboutSaves(`Restore failed: ${err instanceof Error ? err.message : String(err)}`, true);
+    }
+  });
+  $("save-confirm-yes").addEventListener("click", async () => {
+    confirmBox.hidden = true;
+    const plan = pending;
+    pending = null;
+    if (!plan) return;
+    try {
+      await apply(plan);
+    } catch (err) {
+      sayAboutSaves(`Restore failed: ${err instanceof Error ? err.message : String(err)}`, true);
+    }
+  });
+  $("save-confirm-no").addEventListener("click", () => {
+    confirmBox.hidden = true;
+    pending = null;
+    sayAboutSaves("Nothing was changed.");
+  });
 }
 
 // ---- Startup -----------------------------------------------------------------------------------
@@ -346,6 +467,7 @@ async function main() {
     setState("ready", "Ready.");
     $("install-panel").hidden = true;
     $("play-panel").hidden = false;
+    void refreshSaves();
     if (params.has("autoplay")) void play().catch(fail);
   };
   const askInstall = () => {
@@ -370,6 +492,7 @@ async function main() {
   });
   $("play").addEventListener("click", () => void play().catch(fail));
   $("reinstall").addEventListener("click", askInstall);
+  attachSaves();
 
   if (await installed()) showPlay();
   else if (params.has("devIso")) {
