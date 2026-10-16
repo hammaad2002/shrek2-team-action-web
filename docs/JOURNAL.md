@@ -238,3 +238,9 @@ decisions and gotchas — no decompiled code.
   ~4 min); the installer no longer fsyncs each file (Chrome 100 s → ~60 s), and an
   `.installing` marker keeps an interrupted install from counting as installed. Private windows
   (Firefox: no OPFS; Safari: no sync handles) get a clear message.
+- WebKit reported "Blit feedback loop: the read and draw framebuffers are the same" now and then.
+  Cause (all browsers): `fbo_for()` binds a newly created FBO to GL_FRAMEBUFFER (read and draw),
+  and present()/blit() called it after binding the other target — so the first present after any
+  texture was freed (which flushes the FBO cache) and the first StretchRect to a new surface blit
+  a framebuffer onto itself (Chrome silently dropped that frame/copy). FBOs are now looked up
+  before binding; a StretchRect within one surface goes through a scratch texture.

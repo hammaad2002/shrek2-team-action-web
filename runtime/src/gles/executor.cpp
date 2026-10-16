@@ -376,6 +376,8 @@ static void present() {
   maybe_dump_frame();
   int ww, wh;
   plat::get_window_size(&ww, &wh);
+  // Look the back buffer's FBO up first: creating it binds GL_FRAMEBUFFER (read and draw).
+  GLuint read = fbo_for(Target{1, 0, 0, 0}, Target{});
   glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
   glDisable(GL_SCISSOR_TEST);
   glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
@@ -388,18 +390,44 @@ static void present() {
   if (wa > sa) dw = (int)std::lround(wh * sa);
   else dh = (int)std::lround(ww / sa);
   int dx = (ww - dw) / 2, dy = (wh - dh) / 2;
-  glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo_for(Target{1, 0, 0, 0}, Target{}));
+  glBindFramebuffer(GL_READ_FRAMEBUFFER, read);
   glBlitFramebuffer(0, 0, (GLint)g.bbw, (GLint)g.bbh, dx, dy + dh, dx + dw, dy, GL_COLOR_BUFFER_BIT, GL_LINEAR);
   plat::gl_swap();
   g.state_dirty = true;
 }
 
 static void blit(const Target& src, const uint32_t* sr, const Target& dst, const uint32_t* dr, uint32_t filter) {
-  glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo_for(src, Target{}));
-  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbo_for(dst, Target{}));
+  GLenum gl_filter = filter == 2 ? GL_LINEAR : GL_NEAREST;
   glDisable(GL_SCISSOR_TEST);
-  glBlitFramebuffer((GLint)sr[0], (GLint)sr[1], (GLint)sr[2], (GLint)sr[3], (GLint)dr[0], (GLint)dr[1], (GLint)dr[2], (GLint)dr[3],
-                    GL_COLOR_BUFFER_BIT, filter == 2 ? GL_LINEAR : GL_NEAREST);
+  // Both FBOs are looked up before binding: creating one binds GL_FRAMEBUFFER (read and draw),
+  // which used to turn a first blit to a new surface into a blit of that surface onto itself.
+  GLuint read = fbo_for(src, Target{}), draw = fbo_for(dst, Target{});
+  uint32_t sx0 = sr[0], sy0 = sr[1], sx1 = sr[2], sy1 = sr[3];
+  if (src.kind == dst.kind && src.id == dst.id && src.face == dst.face && src.level == dst.level) {
+    // StretchRect within one surface: WebGL forbids blitting a framebuffer onto itself, so the
+    // source rectangle goes through a scratch texture first.
+    uint32_t w = sx1 > sx0 ? sx1 - sx0 : 0, h = sy1 > sy0 ? sy1 - sy0 : 0;
+    if (!w || !h) return;
+    if (!g.scratch_fbo || g.scratch_w < w || g.scratch_h < h) {
+      if (g.scratch_tex) glDeleteTextures(1, &g.scratch_tex);
+      if (!g.scratch_fbo) glGenFramebuffers(1, &g.scratch_fbo);
+      g.scratch_w = std::max(g.scratch_w, w), g.scratch_h = std::max(g.scratch_h, h);
+      glGenTextures(1, &g.scratch_tex);
+      glBindTexture(GL_TEXTURE_2D, g.scratch_tex);
+      glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, (GLsizei)g.scratch_w, (GLsizei)g.scratch_h);
+      glBindFramebuffer(GL_FRAMEBUFFER, g.scratch_fbo);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g.scratch_tex, 0);
+    }
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, read);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g.scratch_fbo);
+    glBlitFramebuffer((GLint)sx0, (GLint)sy0, (GLint)sx1, (GLint)sy1, 0, 0, (GLint)w, (GLint)h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    read = g.scratch_fbo;
+    sx0 = 0, sy0 = 0, sx1 = w, sy1 = h;
+  }
+  glBindFramebuffer(GL_READ_FRAMEBUFFER, read);
+  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, draw);
+  glBlitFramebuffer((GLint)sx0, (GLint)sy0, (GLint)sx1, (GLint)sy1, (GLint)dr[0], (GLint)dr[1], (GLint)dr[2], (GLint)dr[3], GL_COLOR_BUFFER_BIT,
+                    gl_filter);
   g.state_dirty = true;
 }
 

@@ -71,6 +71,8 @@ struct Exec {
   GLuint bb_tex = 0;
   uint32_t bbw = 0, bbh = 0, bb_fmt = 22;
   std::map<uint64_t, GLuint> fbos;
+  GLuint scratch_tex = 0, scratch_fbo = 0;  // for blits within one surface
+  uint32_t scratch_w = 0, scratch_h = 0;
   bool state_dirty = true;
   uint16_t gamma[3 * 256] = {};
   // Statistics.
