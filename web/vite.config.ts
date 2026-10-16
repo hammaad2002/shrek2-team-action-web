@@ -74,6 +74,7 @@ export default defineConfig({
   plugins: [icedEsm(), devFiles()],
   server: { headers: isolation, port: 5173, strictPort: true, fs: { allow: [root] } },
   preview: { headers: isolation },
-  worker: { format: "es" },
+  // Worker bundles do not inherit `plugins`: the translator worker needs the iced-x86 shim too.
+  worker: { format: "es", plugins: () => [icedEsm()] },
   build: { target: "es2022", outDir: "dist", emptyOutDir: true },
 });

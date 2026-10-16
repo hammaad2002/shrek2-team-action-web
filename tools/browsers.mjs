@@ -16,10 +16,11 @@ export function browserArgs(args) {
   return { browser: opt("browser", "chrome"), angle: opt("angle", "vulkan"), headed: args.includes("--headed") };
 }
 
-export async function launch({ browser = "chrome", angle = "vulkan", headed = false, port = "5174", extra = {} }) {
+export async function launch({ browser = "chrome", angle = "vulkan", headed = false, port = "5174", profile = "", extra = {} }) {
   const common = { headless: !headed, viewport: { width: 1280, height: 960 }, ...extra };
+  const dir = profile || (browser === "chrome" ? `work/chrome-profile-${port}` : `work/${browser}-profile-${port}`);
   if (browser === "chrome") {
-    return chromium.launchPersistentContext(`work/chrome-profile-${port}`, {
+    return chromium.launchPersistentContext(dir, {
       ...common,
       executablePath: "/usr/bin/google-chrome",
       args: [
@@ -33,11 +34,11 @@ export async function launch({ browser = "chrome", angle = "vulkan", headed = fa
     });
   }
   if (browser === "firefox") {
-    return firefox.launchPersistentContext(`work/firefox-profile-${port}`, {
+    return firefox.launchPersistentContext(dir, {
       ...common,
       firefoxUserPrefs: { "media.autoplay.default": 0, "webgl.force-enabled": true },
     });
   }
-  if (browser === "webkit") return webkit.launchPersistentContext(`work/webkit-profile-${port}`, common);
+  if (browser === "webkit") return webkit.launchPersistentContext(dir, common);
   throw new Error(`unknown --browser ${browser}`);
 }

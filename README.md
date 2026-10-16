@@ -12,8 +12,8 @@ Not affiliated with or endorsed by Activision, DreamWorks Animation or Beenox.
 
 ## Playing
 - **Browsers:** current desktop Chrome, Edge, Firefox or Safari, in a normal (not private)
-  window. About 1 GB of storage is needed. Unpacking takes about a minute (Firefox: 3–4 minutes),
-  once; translating the game takes a few seconds the first time.
+  window. About 1 GB of storage is needed. Unpacking takes under a minute (Firefox: about three
+  minutes), once; translating the game takes a few seconds the first time.
 - **Controls:** the game's own keys (arrows to move, Space jump, Z use, X attack, C special, A/S
   switch character, D HUD, Esc pause, numpad camera). Press F1 in game, or **Controls** on the
   start page, for the full list.

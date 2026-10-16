@@ -259,3 +259,23 @@ decisions and gotchas — no decompiled code.
   ~50–60 ms per file whatever the concurrency; packing the 4,088 files would fix it).
 - WebKit's site quota in this build is 1,000 MB (install ~850 MB); the page now refuses to
   install with less than 900 MB free and explains why.
+
+## 2026-10-16 — Release preparation
+- Deployable engine without Emscripten assertions; the production page ignores the development
+  URL switches (a shared `?resetSave` link must not delete a visitor's saves).
+- `web/public/_headers` (Cloudflare Pages): COOP/COEP/CORP, nosniff, no-referrer; hashed assets
+  immutable, engine and worklet revalidated. Footer notice, `licenses.html` (FFmpeg LGPL with
+  source and rebuild path, iced-x86, Emscripten, dlmalloc, Vite), README, MIT LICENSE (draft).
+- `tools/scan-dist.mjs`: rolling-hash scan of every 48-byte window of the site against the
+  installed game and the disc (1.37 GB in ~50 s), skipping low-information and arithmetic
+  windows; runs also present in shipped third-party files are accepted. Findings: FFmpeg's
+  `bink_patterns` table (binkdata.h:125, 1,024 bytes — the same constants as binkw32.dll) and the
+  MIT disclaimer wording (also in InstallShield's license text). A planted 3,000-byte slice of
+  the exe is caught. `tools/build-release.sh` runs it with the other guards and `um publish
+  check` (site: 0 failures; repository export: PASS).
+- The rehearsal (`tools/web-release-test.mjs` against `vite preview`, fresh profile, ISO chosen
+  through the file input) found a production-only crash: Vite does not apply `plugins` to worker
+  bundles, so the translator worker got iced-x86's Node build (`TextDecoder` from `util`); fixed
+  with `worker.plugins`. Afterwards Chrome, Firefox and WebKit all pass: install 21 s / 186 s /
+  26 s, translation 2.5–4.1 s, play to the menus, a save backup restored into the new install,
+  no console or engine errors.
